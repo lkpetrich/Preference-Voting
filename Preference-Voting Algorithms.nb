@@ -1,0 +1,3664 @@
+(* Content-type: application/vnd.wolfram.mathematica *)
+
+(*** Wolfram Notebook File ***)
+(* http://www.wolfram.com/nb *)
+
+(* CreatedBy='Mathematica 11.0' *)
+
+(*CacheID: 234*)
+(* Internal cache information:
+NotebookFileLineBreakTest
+NotebookFileLineBreakTest
+NotebookDataPosition[       158,          7]
+NotebookDataLength[    133140,       3656]
+NotebookOptionsPosition[    127549,       3501]
+NotebookOutlinePosition[    127908,       3517]
+CellTagsIndexPosition[    127865,       3514]
+WindowFrame->Normal*)
+
+(* Beginning of Notebook Content *)
+Notebook[{
+Cell["\<\
+Preference-Voting Algorithms
+
+They work with ballot object of the form
+List of:
+{weight, {candidates in order of preference}}
+
+The preference ordering of candidates need not include all of them in a ballot
+
+Setup:
+GetCandidates[ballots] -- returns which candidates, in sorted order
+RemoveEmptyBallots[ballots] -- necessary in some parts
+\[LineSeparator]What they return: {} = list, {{}} = list of lists, C = \
+candidate, CN = candidate + numerical value (count, etc.)
+
+Overall, Top Number:
+TotalCount[ballots] -- returns the total count of votes (sum of weights)
+AllVotes[ballots] -- returns each candidate\[CloseCurlyQuote]s total count of \
+votes -- {CN}
+TopOne[ballots] -- top one: first past the post, plurality voting -- {CN}
+TopNum[ballots,num] -- Bucklin voting: top (num) -- {CN}
+TopNumList[ballots] -- list of Bucklin-voting results for each possible \
+number -- {{CN}}
+MinusBottom[ballots] -- like top one, but counts up unselected or last \
+selected candidates  -- {CN}
+
+Rank Counting:
+Borda[ballots] -- Borda count -- {CN}
+ModBorda[ballots] -- each ballot is counted down from its length instead of \
+the overall number of candidates -- {CN}
+CumulBorda[ballots] -- simulates cumulative voting by dividing each ballot\
+\[CloseCurlyQuote]s modified-Borda values by those values\[CloseCurlyQuote] \
+sum -- {CN}
+
+Multistep:
+TopTwoRunoff[ballots,DoRound=TopOne] -- the top two candidates are selected \
+out, then go head-to-head
+- DoRound: how to count each round -- {CN}
+SequentialRunoff[ballots,ThresholdFunc=Min,DoRound=TopOne] -- the \
+below-threshold candidates are dropped, then the process is repeated until \
+one cannot proceed further -- {{CN}}
+- ThresholdFunc: how to find the maximum numerical value to reject
+- DoRound: how to count each round -- {CN}
+
+SingleTransferableVote[ballots,num] -- tries to fill (num) seats. Returns \
+list of {round results, + for accepted, - for rejected, accepted or rejected \
+candidate in this round}, then a list of winners
+CompPairOutcomesSTV[ballots,num] -- Comparison of Pairs of Outcomes for STV: \
+returns {size-(num) subsets of the candidates, matrix of how each subset \
+scores against each other subset}
+One uses a Condorcet method to proceed further, like in
+CPOSTVSchulze[ballots,num]
+
+Condorcet Setup:
+CondorcetMatrix[ballots] -- as it says, indexed by candidate index
+Has these auxiliary functions:
+ApplyPermutations[n,f,data] --
+- n = length of all permutations, generated in lexical order
+- f = function that takes (permutation,data) and returns an updated version \
+of data
+- data = initial value
+- Returns final version of data
+permcycles[perm] -- returns all the cyclic permutations in perm
+
+Condorcet Methods:
+CondorcetWinnerIndex[prefmat] -- takes a Condorcet matrix and returns the \
+winner\[CloseCurlyQuote]s index, or None if there is no Condorcet winner
+CondorcetWinner[ballots] -- returns {True,Condorcet Winner} or else {False} \
+if there is none
+Schulze[ballots] -- Schulze beathpath -- {C}
+Copeland[ballots] -- Copeland pairwise aggregation -- {CN}
+Minimax[ballots,which] -- Minimax -- {CN}
+- (which) is: \[OpenCurlyDoubleQuote]wins\[CloseCurlyDoubleQuote] = winning \
+votes, \[OpenCurlyDoubleQuote]marg\[CloseCurlyDoubleQuote] = margins, \
+\[OpenCurlyDoubleQuote]oppo\[CloseCurlyDoubleQuote] = pairwise opposition
+KemenyYoung[ballots] -- Kemeny-Young -- {C}
+Dodgson[ballots] -- Dodgson\[CloseCurlyQuote]s method -- {CN} where the N is \
+the smallest permutation distance that makes the candidate a Condorcet \
+winner. That distance is (length of permutation) - (number of cycles), and is \
+0 for ascending order. For no Condorcet winner, (length of permutation) is used
+RankedPairs[ballots] -- Tideman\[CloseCurlyQuote]s ranked pairs -- {C}
+MaximalLotteries[ballots] -- finds a probabilistic extension of Condorcet \
+winners -- {CN}
+
+Maximal Sets:
+MaximalSet[ballots,type] -- for type \[OpenCurlyDoubleQuote]Schwartz\
+\[CloseCurlyDoubleQuote], returns the Schwartz one (>), for type \
+\[OpenCurlyDoubleQuote]Smith\[CloseCurlyDoubleQuote], returns the Smith one \
+(>=) -- {C}
+MaximalSetSequence[ballots,type] -- makes a sequence of maximal sets by \
+removing them from the ballots as it goes -- {{C}}
+
+Alternate Algorithms: my original versions of the permutation-cycles and the \
+acyclicity-tester. They are superseded here by Mathematica functions, and \
+they are included for reference when constructing other-language versions.
+
+However, alternate versions of the linear-programming solver are not included \
+here.\
+\>", "Text"],
+
+Cell[CellGroupData[{
+
+Cell["Algorithms", "Section"],
+
+Cell[CellGroupData[{
+
+Cell["Setup", "Subsection"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"MakeWeighted", "[", 
+   RowBox[{"ballots_", ",", 
+    RowBox[{"wt_:", "1"}]}], "]"}], " ", ":=", " ", 
+  RowBox[{
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"wt", ",", "#"}], "}"}], "&"}], " ", "/@", " ", 
+   "ballots"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"MakeBallotsFromCandNums", "[", "cns_", "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{
+     "cands", ",", "nums", ",", "n", ",", "num", ",", "wt", ",", "pns", ",", 
+      "prefs", ",", "k"}], "}"}], ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{
+      RowBox[{"{", 
+       RowBox[{"cands", ",", "nums"}], "}"}], " ", "=", " ", "cns"}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"n", " ", "=", " ", 
+      RowBox[{"Length", "[", "cands", "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"Table", "[", "\[IndentingNewLine]", 
+      RowBox[{
+       RowBox[{
+        RowBox[{
+         RowBox[{"{", 
+          RowBox[{"wt", ",", "pns"}], "}"}], " ", "=", " ", "num"}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"prefs", " ", "=", " ", 
+         RowBox[{"ConstantArray", "[", 
+          RowBox[{"Null", ",", "n"}], "]"}]}], ";", "\[IndentingNewLine]", 
+        RowBox[{"Do", "[", 
+         RowBox[{
+          RowBox[{
+           RowBox[{"prefs", "[", 
+            RowBox[{"[", 
+             RowBox[{"pns", "[", 
+              RowBox[{"[", "k", "]"}], "]"}], "]"}], "]"}], " ", "=", " ", 
+           RowBox[{"cands", "[", 
+            RowBox[{"[", "k", "]"}], "]"}]}], ",", 
+          RowBox[{"{", 
+           RowBox[{"k", ",", "n"}], "}"}]}], "]"}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"{", 
+         RowBox[{"wt", ",", "prefs"}], "}"}]}], ",", "\[IndentingNewLine]", 
+       RowBox[{"{", 
+        RowBox[{"num", ",", "nums"}], "}"}]}], "]"}]}]}], 
+   "\[IndentingNewLine]", "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"GetCandidates", "[", "ballots_", "]"}], " ", ":=", " ", 
+  RowBox[{"Union", "  ", "@@", " ", 
+   RowBox[{"(", 
+    RowBox[{
+     RowBox[{
+      RowBox[{"#", "[", 
+       RowBox[{"[", "2", "]"}], "]"}], "&"}], " ", "/@", " ", "ballots"}], 
+    ")"}]}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"RemoveEmptyBallots", "[", "ballots_", "]"}], " ", ":=", " ", 
+  RowBox[{"Select", "[", 
+   RowBox[{"ballots", ",", 
+    RowBox[{
+     RowBox[{
+      RowBox[{"Length", "[", 
+       RowBox[{"#", "[", 
+        RowBox[{"[", "2", "]"}], "]"}], "]"}], ">", "0"}], "&"}]}], 
+   "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"lstoix", "[", 
+   RowBox[{"lst_", ",", "lix_"}], "]"}], " ", ":=", " ", 
+  RowBox[{"Do", "[", 
+   RowBox[{
+    RowBox[{
+     RowBox[{"lix", "[", 
+      RowBox[{"lst", "[", 
+       RowBox[{"[", "k", "]"}], "]"}], "]"}], " ", "=", " ", "k"}], ",", 
+    RowBox[{"{", 
+     RowBox[{"k", ",", 
+      RowBox[{"Length", "[", "lst", "]"}]}], "}"}]}], "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{"Ballot", " ", 
+   RowBox[{"processing", ".", "\[IndentingNewLine]", "Removes"}], " ", 
+   "empty", " ", 
+   RowBox[{"ballots", ".", "\[IndentingNewLine]", "Function"}], " ", 
+   RowBox[{"arg", ":", " ", 
+    RowBox[{"ballot", " ", 
+     RowBox[{"member", ".", " ", "Returns"}], " ", "whether", " ", "or", " ", 
+     "not", " ", "to", " ", "keep", " ", "the", " ", 
+     RowBox[{"member", "."}]}]}]}], " ", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"ProcessBallots", "[", 
+   RowBox[{"ballots_", ",", " ", "procfunc_"}], "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"ballot", ",", "wt", ",", "prefs", ",", "newballots"}], "}"}], 
+    ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"newballots", " ", "=", " ", 
+      RowBox[{"Table", "[", 
+       RowBox[{
+        RowBox[{
+         RowBox[{
+          RowBox[{"{", 
+           RowBox[{"wt", ",", "prefs"}], "}"}], " ", "=", " ", "ballot"}], 
+         ";", "\[IndentingNewLine]", 
+         RowBox[{"prefs", " ", "=", " ", 
+          RowBox[{"Pick", "[", 
+           RowBox[{"prefs", ",", " ", 
+            RowBox[{"procfunc", " ", "/@", " ", "prefs"}]}], "]"}]}], ";", 
+         "\[IndentingNewLine]", 
+         RowBox[{"{", 
+          RowBox[{"wt", ",", "prefs"}], "}"}]}], ",", "\[IndentingNewLine]", 
+        RowBox[{"{", 
+         RowBox[{"ballot", ",", "ballots"}], "}"}]}], "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"RemoveEmptyBallots", "[", "newballots", "]"}]}]}], 
+   "\[IndentingNewLine]", "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+   RowBox[{"Args", ":", " ", "ballots"}], ",", " ", 
+   RowBox[{
+   "candidates", " ", "to", " ", "either", " ", "keep", " ", "or", " ", 
+    "remove"}]}], " ", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"KeepCandidates", "[", 
+   RowBox[{"ballots_", ",", "cands_"}], "]"}], " ", ":=", " ", 
+  RowBox[{"ProcessBallots", "[", 
+   RowBox[{"ballots", ",", 
+    RowBox[{
+     RowBox[{"(", 
+      RowBox[{"MemberQ", "[", 
+       RowBox[{"cands", ",", "#"}], "]"}], ")"}], "&"}]}], "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"RemoveCandidates", "[", 
+   RowBox[{"ballots_", ",", "cands_"}], "]"}], " ", ":=", " ", 
+  RowBox[{"ProcessBallots", "[", 
+   RowBox[{"ballots", ",", 
+    RowBox[{
+     RowBox[{"(", 
+      RowBox[{"!", 
+       RowBox[{"MemberQ", "[", 
+        RowBox[{"cands", ",", "#"}], "]"}]}], ")"}], "&"}]}], 
+   "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+   RowBox[{"Generic", " ", "counting", " ", 
+    RowBox[{"function", ".", "\[IndentingNewLine]", "Function"}], " ", 
+    "countfunc", " ", "accepts", " ", 
+    RowBox[{
+    "args", ":", "\[IndentingNewLine]", "Counts", ":", " ", "arg", ":", " ", 
+     "candidate"}]}], ",", " ", 
+   RowBox[{"returns", ":", " ", "number"}], ",", " ", "Weight", ",", " ", 
+   "Preferences", ",", " ", 
+   RowBox[{"Cands", " ", 
+    RowBox[{"(", 
+     RowBox[{"list", " ", "of", " ", "candidates"}], ")"}]}]}], 
+  "\[IndentingNewLine]", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"BBoxCounter", "[", 
+   RowBox[{"ballots_", ",", "countfunc_"}], "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{
+     "cands", ",", "cand", ",", "counts", ",", "ballot", ",", " ", "wt", ",", 
+      " ", "prefs"}], "}"}], ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"cands", " ", "=", " ", 
+      RowBox[{"GetCandidates", "[", "ballots", "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"Do", "[", 
+      RowBox[{
+       RowBox[{
+        RowBox[{"counts", "[", "cand", "]"}], " ", "=", " ", "0"}], ",", 
+       RowBox[{"{", 
+        RowBox[{"cand", ",", "cands"}], "}"}]}], "]"}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"Do", "[", 
+      RowBox[{
+       RowBox[{
+        RowBox[{
+         RowBox[{"{", 
+          RowBox[{"wt", ",", "prefs"}], "}"}], " ", "=", " ", "ballot"}], ";",
+         "\[IndentingNewLine]", 
+        RowBox[{"countfunc", "[", 
+         RowBox[{"counts", ",", "wt", ",", "prefs", ",", "cands"}], "]"}]}], 
+       ",", "\[IndentingNewLine]", 
+       RowBox[{"{", 
+        RowBox[{"ballot", ",", "ballots"}], "}"}]}], "]"}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"SortBy", "[", 
+      RowBox[{
+       RowBox[{
+        RowBox[{
+         RowBox[{"{", 
+          RowBox[{"#", ",", 
+           RowBox[{"counts", "[", "#", "]"}]}], "}"}], "&"}], " ", "/@", " ", 
+        "cands"}], ",", " ", 
+       RowBox[{
+        RowBox[{"{", 
+         RowBox[{
+          RowBox[{"-", 
+           RowBox[{"#", "[", 
+            RowBox[{"[", "2", "]"}], "]"}]}], ",", 
+          RowBox[{"#", "[", 
+           RowBox[{"[", "1", "]"}], "]"}]}], "}"}], "&"}]}], "]"}]}]}], 
+   "\[IndentingNewLine]", "]"}]}]], "Input"]
+}, Closed]],
+
+Cell[CellGroupData[{
+
+Cell["Overall, Top Number", "Subsection"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"TotalCount", "[", "ballots_", "]"}], " ", ":=", " ", 
+  RowBox[{"Total", "[", 
+   RowBox[{
+    RowBox[{
+     RowBox[{"#", "[", 
+      RowBox[{"[", "1", "]"}], "]"}], "&"}], " ", "/@", " ", "ballots"}], 
+   "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"AllVotesFunction", "[", 
+   RowBox[{"counts_", ",", "wt_", ",", "prefs_", ",", "cands_"}], "]"}], " ", 
+  ":=", " ", 
+  RowBox[{"Do", "[", 
+   RowBox[{
+    RowBox[{
+     RowBox[{"counts", "[", "pref", "]"}], " ", "+=", "wt"}], ",", 
+    RowBox[{"{", 
+     RowBox[{"pref", ",", "prefs"}], "}"}]}], "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"AllVotes", "[", "ballots_", "]"}], " ", ":=", " ", 
+  RowBox[{"BBoxCounter", "[", 
+   RowBox[{"ballots", ",", "AllVotesFunction"}], "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"TopOneFunction", "[", 
+   RowBox[{"counts_", ",", "wt_", ",", "prefs_", ",", "cands_"}], "]"}], " ", 
+  ":=", " ", 
+  RowBox[{"If", "[", 
+   RowBox[{
+    RowBox[{
+     RowBox[{"Length", "[", "prefs", "]"}], " ", ">", " ", "0"}], ",", 
+    RowBox[{
+     RowBox[{"counts", "[", 
+      RowBox[{"First", "[", "prefs", "]"}], "]"}], " ", "+=", " ", "wt"}]}], 
+   "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"TopOne", "[", "ballots_", "]"}], " ", ":=", " ", 
+  RowBox[{"BBoxCounter", "[", 
+   RowBox[{"ballots", ",", "TopOneFunction"}], "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"MinusBottomFunction", "[", 
+   RowBox[{"counts_", ",", "wt_", ",", "prefs_", ",", "cands_"}], "]"}], " ", 
+  ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"unselected", ",", "pref"}], "}"}], ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"unselected", " ", "=", " ", 
+      RowBox[{"Complement", "[", 
+       RowBox[{"cands", ",", "prefs"}], "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"If", "[", 
+      RowBox[{
+       RowBox[{
+        RowBox[{"Length", "[", "unselected", "]"}], " ", ">", " ", "0"}], ",",
+        "\[IndentingNewLine]", 
+       RowBox[{"Do", "[", 
+        RowBox[{
+         RowBox[{
+          RowBox[{"counts", "[", "pref", "]"}], " ", "-=", " ", "wt"}], ",", 
+         RowBox[{"{", 
+          RowBox[{"pref", ",", "unselected"}], "}"}]}], "]"}], ",", 
+       "\[IndentingNewLine]", 
+       RowBox[{"If", "[", 
+        RowBox[{
+         RowBox[{
+          RowBox[{"Length", "[", "prefs", "]"}], " ", ">", " ", "0"}], ",", 
+         "\[IndentingNewLine]", 
+         RowBox[{
+          RowBox[{"counts", "[", 
+           RowBox[{"Last", "[", "prefs", "]"}], "]"}], " ", "-=", " ", 
+          "wt"}]}], "]"}]}], "\[IndentingNewLine]", "]"}]}]}], 
+   "\[IndentingNewLine]", "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"MinusBottom", "[", "ballots_", "]"}], " ", ":=", " ", 
+  RowBox[{"BBoxCounter", "[", 
+   RowBox[{"ballots", ",", "MinusBottomFunction"}], "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+   RowBox[{"http", ":"}], "//", 
+   RowBox[{
+    RowBox[{
+     RowBox[{"en", ".", "wikipedia", ".", "org"}], "/", "wiki"}], "/", 
+    "Bucklin_voting"}]}], " ", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"TopNumFunction", "[", 
+   RowBox[{
+   "counts_", ",", "wt_", ",", "prefs_", ",", "cands_", ",", " ", "num_"}], 
+   "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"adjnum", ",", "k"}], "}"}], ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"adjnum", " ", "=", " ", 
+      RowBox[{"Min", "[", 
+       RowBox[{
+        RowBox[{"Length", "[", "prefs", "]"}], ",", "num"}], "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"Do", "[", 
+      RowBox[{
+       RowBox[{
+        RowBox[{"counts", "[", 
+         RowBox[{"prefs", "[", 
+          RowBox[{"[", "k", "]"}], "]"}], "]"}], " ", "+=", " ", "wt"}], ",", 
+       
+       RowBox[{"{", 
+        RowBox[{"k", ",", "adjnum"}], "}"}]}], "]"}]}]}], 
+   "\[IndentingNewLine]", "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"TopNum", "[", 
+   RowBox[{"ballots_", ",", "num_"}], "]"}], " ", ":=", " ", 
+  RowBox[{"BBoxCounter", "[", 
+   RowBox[{"ballots", ",", 
+    RowBox[{
+     RowBox[{"TopNumFunction", "[", 
+      RowBox[{"#1", ",", "#2", ",", "#3", ",", "#4", ",", "num"}], "]"}], 
+     "&"}]}], "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"TopNumList", "[", "ballots_", "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"n", ",", "k"}], "}"}], ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"n", " ", "=", " ", 
+      RowBox[{"Length", "[", 
+       RowBox[{"GetCandidates", "[", "ballots", "]"}], "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"Table", "[", 
+      RowBox[{
+       RowBox[{"TopNum", "[", 
+        RowBox[{"ballots", ",", "k"}], "]"}], ",", 
+       RowBox[{"{", 
+        RowBox[{"k", ",", "n"}], "}"}]}], "]"}]}]}], "\[IndentingNewLine]", 
+   "]"}]}]], "Input"]
+}, Closed]],
+
+Cell[CellGroupData[{
+
+Cell["Rank Counting", "Subsection"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+   RowBox[{"http", ":"}], "//", 
+   RowBox[{
+    RowBox[{
+     RowBox[{"en", ".", "wikipedia", ".", "org"}], "/", "wiki"}], "/", 
+    "Borda_count"}]}], " ", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"BordaFunction", "[", 
+   RowBox[{"counts_", ",", "wt_", ",", "prefs_", ",", "cands_"}], "]"}], " ", 
+  ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"maxnum", ",", "n", ",", "k"}], "}"}], ",", 
+    "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"maxnum", " ", "=", " ", 
+      RowBox[{"Length", "[", "cands", "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"n", " ", "=", " ", 
+      RowBox[{"Length", "[", "prefs", "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"Do", "[", 
+      RowBox[{
+       RowBox[{
+        RowBox[{"counts", "[", 
+         RowBox[{"prefs", "[", 
+          RowBox[{"[", "k", "]"}], "]"}], "]"}], " ", "+=", " ", 
+        RowBox[{"wt", "*", 
+         RowBox[{"(", 
+          RowBox[{"maxnum", " ", "-", " ", "k", " ", "+", " ", "1"}], 
+          ")"}]}]}], ",", 
+       RowBox[{"{", 
+        RowBox[{"k", ",", "n"}], "}"}]}], "]"}]}]}], "\[IndentingNewLine]", 
+   "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"Borda", "[", "ballots_", "]"}], " ", ":=", " ", 
+  RowBox[{"BBoxCounter", "[", 
+   RowBox[{"ballots", ",", "BordaFunction"}], "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"ModBordaFunction", "[", 
+   RowBox[{"counts_", ",", "wt_", ",", "prefs_", ",", "cands_"}], "]"}], " ", 
+  ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"maxnum", ",", "n", ",", "k"}], "}"}], ",", 
+    "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"maxnum", " ", "=", " ", 
+      RowBox[{"Length", "[", "prefs", "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"n", " ", "=", " ", 
+      RowBox[{"Length", "[", "prefs", "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"Do", "[", 
+      RowBox[{
+       RowBox[{
+        RowBox[{"counts", "[", 
+         RowBox[{"prefs", "[", 
+          RowBox[{"[", "k", "]"}], "]"}], "]"}], " ", "+=", " ", 
+        RowBox[{"wt", "*", 
+         RowBox[{"(", 
+          RowBox[{"maxnum", " ", "-", " ", "k", " ", "+", " ", "1"}], 
+          ")"}]}]}], ",", 
+       RowBox[{"{", 
+        RowBox[{"k", ",", "n"}], "}"}]}], "]"}]}]}], "\[IndentingNewLine]", 
+   "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"ModBorda", "[", "ballots_", "]"}], " ", ":=", " ", 
+  RowBox[{"BBoxCounter", "[", 
+   RowBox[{"ballots", ",", "ModBordaFunction"}], "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+   RowBox[{"http", ":"}], "//", 
+   RowBox[{
+    RowBox[{
+     RowBox[{"en", ".", "wikipedia", ".", "org"}], "/", "wiki"}], "/", 
+    "Cumulative_voting"}]}], " ", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"CumulBordaFunction", "[", 
+   RowBox[{"counts_", ",", "wt_", ",", "prefs_", ",", "cands_"}], "]"}], " ", 
+  ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{
+     "maxnum", ",", "n", ",", "k", ",", "indcount", ",", "pref", ",", 
+      "ictotal"}], "}"}], ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"maxnum", " ", "=", " ", 
+      RowBox[{"Length", "[", "prefs", "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"n", " ", "=", " ", 
+      RowBox[{"Length", "[", "prefs", "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"Do", "[", 
+      RowBox[{
+       RowBox[{
+        RowBox[{"indcount", "[", 
+         RowBox[{"prefs", "[", 
+          RowBox[{"[", "k", "]"}], "]"}], "]"}], " ", "=", " ", 
+        RowBox[{"0.", " ", "+", " ", 
+         RowBox[{"wt", "*", 
+          RowBox[{"(", 
+           RowBox[{"maxnum", " ", "-", " ", "k", " ", "+", " ", "1"}], 
+           ")"}]}]}]}], ",", 
+       RowBox[{"{", 
+        RowBox[{"k", ",", "n"}], "}"}]}], "]"}], ";", "\[IndentingNewLine]", 
+     RowBox[{"ictotal", " ", "=", " ", 
+      RowBox[{"Sum", "[", 
+       RowBox[{
+        RowBox[{"indcount", "[", "pref", "]"}], ",", 
+        RowBox[{"{", 
+         RowBox[{"pref", ",", "prefs"}], "}"}]}], "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"Do", "[", 
+      RowBox[{
+       RowBox[{
+        RowBox[{"counts", "[", 
+         RowBox[{"prefs", "[", 
+          RowBox[{"[", "k", "]"}], "]"}], "]"}], " ", "+=", " ", 
+        RowBox[{
+         RowBox[{"(", 
+          RowBox[{"wt", "*", 
+           RowBox[{"indcount", "[", 
+            RowBox[{"prefs", "[", 
+             RowBox[{"[", "k", "]"}], "]"}], "]"}]}], ")"}], "/", 
+         "ictotal"}]}], ",", 
+       RowBox[{"{", 
+        RowBox[{"k", ",", "n"}], "}"}]}], "]"}]}]}], "\[IndentingNewLine]", 
+   "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"CumulBorda", "[", "ballots_", "]"}], " ", ":=", " ", 
+  RowBox[{"BBoxCounter", "[", 
+   RowBox[{"ballots", ",", "CumulBordaFunction"}], "]"}]}]], "Input"]
+}, Closed]],
+
+Cell[CellGroupData[{
+
+Cell["Multistep", "Subsection"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+   RowBox[{
+    RowBox[{"http", ":"}], "//", 
+    RowBox[{
+     RowBox[{
+      RowBox[{
+       RowBox[{"en", ".", "wikipedia", ".", "org"}], "/", "wiki"}], "/", 
+      "Contingent_vote"}], "\n", 
+     RowBox[{"http", ":"}]}]}], "//", 
+   RowBox[{
+    RowBox[{
+     RowBox[{
+      RowBox[{"en", ".", "wikipedia", ".", "org"}], "/", "wiki"}], "/", 
+     "Two"}], "-", "round_system"}]}], "\[IndentingNewLine]", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"TopTwoRunoff", "[", 
+   RowBox[{"ballots_", ",", 
+    RowBox[{"DoRound_:", "TopOne"}]}], "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{
+     "rounds", ",", "res", ",", "TopTwoCands", ",", "MaxVotes", ",", "r", ",",
+       "newballots"}], "}"}], ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"rounds", " ", "=", " ", 
+      RowBox[{"{", "}"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"res", " ", "=", " ", 
+      RowBox[{"DoRound", "[", "ballots", "]"}]}], ";", "\[IndentingNewLine]", 
+     
+     RowBox[{"If", "[", 
+      RowBox[{
+       RowBox[{
+        RowBox[{"Length", "[", "res", "]"}], " ", "\[Equal]", " ", "0"}], ",", 
+       RowBox[{"Return", "[", "rounds", "]"}]}], "]"}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"AppendTo", "[", 
+      RowBox[{"rounds", ",", "res"}], "]"}], ";", "\[IndentingNewLine]", 
+     "\[IndentingNewLine]", 
+     RowBox[{"(*", " ", 
+      RowBox[{
+      "Find", " ", "top", " ", "two", " ", "or", " ", "top", " ", "ones", " ",
+        "with", " ", "the", " ", "same", " ", "vote"}], " ", "*)"}], 
+     "\[IndentingNewLine]", 
+     RowBox[{"TopTwoCands", " ", "=", " ", 
+      RowBox[{"{", "}"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"MaxVotes", " ", "=", " ", 
+      RowBox[{"res", "[", 
+       RowBox[{"[", 
+        RowBox[{"1", ",", "2"}], "]"}], "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"Do", "[", "\[IndentingNewLine]", 
+      RowBox[{
+       RowBox[{
+        RowBox[{"If", "[", 
+         RowBox[{
+          RowBox[{
+           RowBox[{"r", "[", 
+            RowBox[{"[", "2", "]"}], "]"}], " ", "\[NotEqual]", " ", 
+           "MaxVotes"}], ",", "\[IndentingNewLine]", 
+          RowBox[{
+           RowBox[{"If", "[", 
+            RowBox[{
+             RowBox[{
+              RowBox[{"Length", "[", "TopTwoCands", "]"}], " ", 
+              "\[GreaterEqual]", " ", "2"}], ",", 
+             RowBox[{"Break", "[", "]"}]}], "]"}], ";", "\[IndentingNewLine]", 
+           RowBox[{"MaxVotes", " ", "=", " ", 
+            RowBox[{"r", "[", 
+             RowBox[{"[", "2", "]"}], "]"}]}]}]}], "\[IndentingNewLine]", 
+         "]"}], ";", "\[IndentingNewLine]", 
+        RowBox[{"AppendTo", "[", 
+         RowBox[{"TopTwoCands", ",", 
+          RowBox[{"r", "[", 
+           RowBox[{"[", "1", "]"}], "]"}]}], "]"}]}], ",", 
+       "\[IndentingNewLine]", 
+       RowBox[{"{", 
+        RowBox[{"r", ",", "res"}], "}"}]}], "]"}], ";", "\[IndentingNewLine]",
+      "\[IndentingNewLine]", 
+     RowBox[{"newballots", " ", "=", " ", 
+      RowBox[{"KeepCandidates", "[", 
+       RowBox[{"ballots", ",", " ", "TopTwoCands"}], "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"res", " ", "=", " ", 
+      RowBox[{"DoRound", "[", "newballots", "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"AppendTo", "[", 
+      RowBox[{"rounds", ",", " ", "res"}], "]"}], ";", "\[IndentingNewLine]", 
+     "\[IndentingNewLine]", "rounds"}]}], "\[IndentingNewLine]", 
+   "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+   RowBox[{
+    RowBox[{
+     RowBox[{
+      RowBox[{
+       RowBox[{"http", ":"}], "//", 
+       RowBox[{
+        RowBox[{
+         RowBox[{
+          RowBox[{"en", ".", "wikipedia", ".", "org"}], "/", "wiki"}], "/", 
+         "Instant"}], "-", 
+        RowBox[{"runoff_voting", "\[IndentingNewLine]", 
+         RowBox[{"http", ":"}]}]}]}], "//", 
+      RowBox[{
+       RowBox[{
+        RowBox[{
+         RowBox[{"en", ".", "wikipedia", ".", "org"}], "/", "wiki"}], "/", 
+        "Exhaustive_ballot"}], "\[IndentingNewLine]", 
+       RowBox[{"http", ":"}]}]}], "//", 
+     RowBox[{
+      RowBox[{
+       RowBox[{
+        RowBox[{"en", ".", "wikipedia", ".", "org"}], "/", "wiki"}], "/", 
+       "Nanson"}], "%27", "s_method", "\[IndentingNewLine]", 
+      RowBox[{"http", ":"}]}]}], "//", 
+    RowBox[{
+     RowBox[{
+      RowBox[{
+       RowBox[{"en", ".", "wikipedia", ".", "org"}], "/", "wiki"}], "/", 
+      "Coombs"}], "%27", "_method", "\[IndentingNewLine]", 
+     "\[IndentingNewLine]", 
+     RowBox[{"Baldwin", ":", " ", "ballots"}]}]}], ",", " ", "Min", ",", " ", 
+   
+   RowBox[{"Borda", "\[IndentingNewLine]", 
+    RowBox[{"Nanson", ":", " ", "ballots"}]}], ",", " ", "Mean", ",", " ", 
+   RowBox[{"Borda", "\[IndentingNewLine]", 
+    RowBox[{"Coombs", ":", " ", "ballots"}]}], ",", " ", "Min", ",", " ", 
+   "MinusBottom"}], "\[IndentingNewLine]", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"SequentialRunoff", "[", 
+   RowBox[{"ballots_", ",", 
+    RowBox[{"ThresholdFunc_:", "Min"}], ",", 
+    RowBox[{"DoRound_:", "TopOne"}]}], "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{
+     "newballots", ",", "rounds", ",", "res", ",", "VoteThreshold", ",", 
+      "BottomCands"}], "}"}], ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"newballots", " ", "=", " ", 
+      RowBox[{"RemoveEmptyBallots", "[", "ballots", "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"rounds", " ", "=", " ", 
+      RowBox[{"{", "}"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"While", "[", 
+      RowBox[{
+       RowBox[{
+        RowBox[{"Length", "[", "newballots", "]"}], " ", ">", " ", "0"}], ",",
+        "\[IndentingNewLine]", 
+       RowBox[{
+        RowBox[{"res", " ", "=", " ", 
+         RowBox[{"DoRound", "[", "newballots", "]"}]}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"AppendTo", "[", 
+         RowBox[{"rounds", ",", "res"}], "]"}], ";", "\[IndentingNewLine]", 
+        RowBox[{"VoteThreshold", " ", "=", " ", 
+         RowBox[{"ThresholdFunc", "[", 
+          RowBox[{
+           RowBox[{
+            RowBox[{"#", "[", 
+             RowBox[{"[", "2", "]"}], "]"}], "&"}], " ", "/@", " ", "res"}], 
+          "]"}]}], ";", "\[IndentingNewLine]", 
+        RowBox[{"BottomCands", " ", "=", " ", 
+         RowBox[{
+          RowBox[{
+           RowBox[{"#", "[", 
+            RowBox[{"[", "1", "]"}], "]"}], "&"}], " ", "/@", " ", 
+          RowBox[{"Select", "[", 
+           RowBox[{"res", ",", 
+            RowBox[{
+             RowBox[{
+              RowBox[{"#", "[", 
+               RowBox[{"[", "2", "]"}], "]"}], "\[LessEqual]", 
+              "VoteThreshold"}], "&"}]}], "]"}]}]}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"newballots", " ", "=", " ", 
+         RowBox[{"RemoveCandidates", "[", 
+          RowBox[{"newballots", ",", " ", "BottomCands"}], "]"}]}], ";"}]}], 
+      "\[IndentingNewLine]", "]"}], ";", "\[IndentingNewLine]", "rounds"}]}], 
+   "\[IndentingNewLine]", "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+   RowBox[{"http", ":"}], "//", 
+   RowBox[{
+    RowBox[{
+     RowBox[{
+      RowBox[{"en", ".", "wikipedia", ".", "org"}], "/", "wiki"}], "/", 
+     "Single_transferable"}], "_vote"}]}], " ", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"SingleTransferableVote", "[", 
+   RowBox[{"ballots_", ",", " ", "num_"}], "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{
+     "quota", ",", "newballots", ",", "rounds", ",", "winners", ",", " ", 
+      "res", ",", "MaxVotes", ",", " ", "TopCands", ",", "excess", ",", 
+      "ballot", ",", "wt", ",", "prefs", ",", "BottomCands", ",", 
+      "MinVotes"}], "}"}], ",", "\[IndentingNewLine]", 
+    RowBox[{"(*", " ", 
+     RowBox[{
+      RowBox[{
+       RowBox[{"The", " ", "Hagenbach"}], "-", 
+       RowBox[{"Bischoff", " ", "quota"}]}], ",", " ", 
+      RowBox[{
+       RowBox[{
+       "a", " ", "fractional", " ", "version", " ", "of", " ", "the", " ", 
+        "Droop", " ", "quota", "\[IndentingNewLine]", 
+        RowBox[{"http", ":"}]}], "//", 
+       RowBox[{
+        RowBox[{
+         RowBox[{
+          RowBox[{"en", ".", "wikipedia", ".", "org"}], "/", "wiki"}], "/", 
+         "Hagenbach"}], "-", "Bischoff_quota"}]}]}], "\[IndentingNewLine]", 
+     "*)"}], "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"quota", " ", "=", " ", 
+      RowBox[{
+       RowBox[{"TotalCount", "[", "ballots", "]"}], "/", 
+       RowBox[{"(", 
+        RowBox[{"num", " ", "+", " ", "1."}], ")"}]}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"newballots", " ", "=", " ", 
+      RowBox[{"RemoveEmptyBallots", "[", "ballots", "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"rounds", " ", "=", " ", 
+      RowBox[{"{", "}"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"winners", " ", "=", " ", 
+      RowBox[{"{", "}"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"While", "[", 
+      RowBox[{
+       RowBox[{
+        RowBox[{
+         RowBox[{"Length", "[", "newballots", "]"}], " ", ">", " ", "0"}], 
+        " ", "&&", " ", 
+        RowBox[{
+         RowBox[{"Length", "[", "winners", "]"}], " ", "<", " ", "num"}]}], 
+       ",", "\[IndentingNewLine]", 
+       RowBox[{
+        RowBox[{"res", " ", "=", " ", 
+         RowBox[{"TopOne", "[", "newballots", "]"}]}], ";", 
+        "\[IndentingNewLine]", "\[IndentingNewLine]", 
+        RowBox[{"(*", " ", 
+         RowBox[{"Check", " ", "for", " ", 
+          RowBox[{"winners", ".", " ", "Find"}], " ", "top", " ", 
+          "candidates", " ", "with", " ", "the", " ", "same", " ", "Vote"}], 
+         " ", "*)"}], "\[IndentingNewLine]", 
+        RowBox[{"MaxVotes", " ", "=", " ", 
+         RowBox[{"res", "[", 
+          RowBox[{"[", 
+           RowBox[{"1", ",", "2"}], "]"}], "]"}]}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"TopCands", " ", "=", " ", 
+         RowBox[{
+          RowBox[{
+           RowBox[{"#", "[", 
+            RowBox[{"[", "1", "]"}], "]"}], "&"}], " ", "/@", " ", 
+          RowBox[{"Select", "[", 
+           RowBox[{"res", ",", 
+            RowBox[{
+             RowBox[{
+              RowBox[{"#", "[", 
+               RowBox[{"[", "2", "]"}], "]"}], "\[Equal]", "MaxVotes"}], 
+             "&"}]}], "]"}]}]}], ";", "\[IndentingNewLine]", 
+        "\[IndentingNewLine]", 
+        RowBox[{"excess", " ", "=", " ", 
+         RowBox[{"MaxVotes", " ", "-", " ", "quota"}]}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"If", "[", 
+         RowBox[{
+          RowBox[{"excess", " ", ">=", " ", "0"}], ",", "\[IndentingNewLine]", 
+          RowBox[{"(*", " ", 
+           RowBox[{"Adjust", " ", "weights", " ", "to", " ", "use", " ", 
+            RowBox[{"winners", "'"}], " ", "excess", " ", "votes"}], " ", 
+           "*)"}], "\[IndentingNewLine]", 
+          RowBox[{
+           RowBox[{"newballots", " ", "=", " ", 
+            RowBox[{"Table", "[", 
+             RowBox[{
+              RowBox[{
+               RowBox[{
+                RowBox[{"{", 
+                 RowBox[{"wt", ",", "prefs"}], "}"}], " ", "=", " ", 
+                "ballot"}], ";", "\[IndentingNewLine]", 
+               RowBox[{"If", "[", 
+                RowBox[{
+                 RowBox[{"MemberQ", "[", 
+                  RowBox[{"TopCands", ",", 
+                   RowBox[{"First", "[", "prefs", "]"}]}], "]"}], ",", 
+                 RowBox[{"wt", " ", "*=", " ", 
+                  RowBox[{"excess", "/", "MaxVotes"}]}]}], "]"}], ";", 
+               "\[IndentingNewLine]", 
+               RowBox[{"{", 
+                RowBox[{"wt", ",", "prefs"}], "}"}]}], ",", 
+              "\[IndentingNewLine]", 
+              RowBox[{"{", 
+               RowBox[{"ballot", ",", "newballots"}], "}"}]}], "]"}]}], ";", 
+           "\[IndentingNewLine]", 
+           RowBox[{"newballots", " ", "=", " ", 
+            RowBox[{"RemoveCandidates", "[", 
+             RowBox[{"newballots", ",", "TopCands"}], "]"}]}], ";", 
+           "\[IndentingNewLine]", 
+           RowBox[{"winners", " ", "=", " ", 
+            RowBox[{"Join", "[", 
+             RowBox[{"winners", ",", "TopCands"}], "]"}]}], ";", 
+           "\[IndentingNewLine]", 
+           RowBox[{"AppendTo", "[", 
+            RowBox[{"rounds", ",", 
+             RowBox[{"{", 
+              RowBox[{"res", ",", "\"\<+\>\"", ",", "TopCands"}], "}"}]}], 
+            "]"}], ";", "\[IndentingNewLine]", 
+           RowBox[{"Continue", "[", "]"}]}]}], "\[IndentingNewLine]", "]"}], 
+        ";", "\[IndentingNewLine]", "\[IndentingNewLine]", 
+        RowBox[{"(*", " ", 
+         RowBox[{"Check", " ", "for", " ", 
+          RowBox[{"losers", ".", " ", "Find"}], " ", "bottom", " ", "ones", 
+          " ", "with", " ", "the", " ", "same", " ", "vote"}], " ", "*)"}], 
+        "\[IndentingNewLine]", 
+        RowBox[{"MinVotes", " ", "=", " ", 
+         RowBox[{"res", "[", 
+          RowBox[{"[", 
+           RowBox[{
+            RowBox[{"-", "1"}], ",", "2"}], "]"}], "]"}]}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"BottomCands", " ", "=", " ", 
+         RowBox[{
+          RowBox[{
+           RowBox[{"#", "[", 
+            RowBox[{"[", "1", "]"}], "]"}], "&"}], " ", "/@", " ", 
+          RowBox[{"Select", "[", 
+           RowBox[{"res", ",", 
+            RowBox[{
+             RowBox[{
+              RowBox[{"#", "[", 
+               RowBox[{"[", "2", "]"}], "]"}], "==", "MinVotes"}], "&"}]}], 
+           "]"}]}]}], ";", "\[IndentingNewLine]", 
+        RowBox[{"newballots", " ", "=", " ", 
+         RowBox[{"RemoveCandidates", "[", 
+          RowBox[{"newballots", ",", "BottomCands"}], "]"}]}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"AppendTo", "[", 
+         RowBox[{"rounds", ",", 
+          RowBox[{"{", 
+           RowBox[{"res", ",", "\"\<-\>\"", ",", "BottomCands"}], "}"}]}], 
+         "]"}], ";"}]}], "\[IndentingNewLine]", "]"}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"AppendTo", "[", 
+      RowBox[{"rounds", ",", "winners"}], "]"}], ";", "\[IndentingNewLine]", 
+     "rounds"}]}], "\[IndentingNewLine]", "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+   RowBox[{
+    RowBox[{
+    "Comparison", " ", "of", " ", "Pairs", " ", "of", " ", "Outcomes"}], " ", 
+    "+", " ", 
+    RowBox[{
+     RowBox[{"STV", " ", "--"}], " ", 
+     RowBox[{"http", ":"}]}]}], "//", 
+   RowBox[{
+    RowBox[{
+     RowBox[{
+      RowBox[{"en", ".", "wikipedia", ".", "org"}], "/", "wiki"}], "/", 
+     "CPO"}], "-", "STV"}]}], " ", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"CompPairOutcomesSTV", "[", 
+   RowBox[{"ballots_", ",", "num_"}], "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{
+     "quota", ",", "cands", ",", "candposses", ",", "ncp", ",", "CprMat", ",",
+       "k1", ",", "k2", ",", "cands1", ",", "cands2", ",", "inboth", ",", 
+      "inneither", ",", "newballots", ",", "TotalOverThreshold", ",", "res", 
+      ",", "VotesOverThreshold", ",", "CandsOverThreshold", ",", "r", ",", 
+      "NumOverThreshold", ",", "ballot", ",", "wt", ",", "prefs", ",", 
+      "totalvotes", ",", "total1", ",", "total2"}], "}"}], ",", 
+    "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"quota", " ", "=", " ", 
+      RowBox[{
+       RowBox[{"TotalCount", "[", "ballots", "]"}], "/", 
+       RowBox[{"(", 
+        RowBox[{"num", " ", "+", " ", "1."}], ")"}]}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"cands", " ", "=", " ", 
+      RowBox[{"GetCandidates", "[", "ballots", "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"candposses", " ", "=", " ", 
+      RowBox[{"Subsets", "[", 
+       RowBox[{"cands", ",", 
+        RowBox[{"{", "num", "}"}]}], "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"ncp", " ", "=", " ", 
+      RowBox[{"Length", "[", "candposses", "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"CprMat", " ", "=", " ", 
+      RowBox[{"ConstantArray", "[", 
+       RowBox[{"0", ",", 
+        RowBox[{"{", 
+         RowBox[{"ncp", ",", "ncp"}], "}"}]}], "]"}]}], ";", 
+     "\[IndentingNewLine]", "\[IndentingNewLine]", 
+     RowBox[{"Do", "[", "\[IndentingNewLine]", 
+      RowBox[{
+       RowBox[{
+        RowBox[{"cands1", " ", "=", " ", 
+         RowBox[{"candposses", "[", 
+          RowBox[{"[", "k1", "]"}], "]"}]}], ";", "\[IndentingNewLine]", 
+        RowBox[{"cands2", " ", "=", " ", 
+         RowBox[{"candposses", "[", 
+          RowBox[{"[", "k2", "]"}], "]"}]}], ";", "\[IndentingNewLine]", 
+        RowBox[{"inboth", " ", "=", " ", 
+         RowBox[{"Intersection", "[", 
+          RowBox[{"cands1", ",", "cands2"}], "]"}]}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"inneither", " ", "=", " ", 
+         RowBox[{"Complement", "[", 
+          RowBox[{"cands", ",", "cands1", ",", "cands2"}], "]"}]}], ";", 
+        "\[IndentingNewLine]", "\[IndentingNewLine]", 
+        RowBox[{"(*", " ", 
+         RowBox[{
+         "Eliminate", " ", "candidates", " ", "in", " ", "neither", " ", 
+          "possibilities"}], " ", "*)"}], "\[IndentingNewLine]", 
+        RowBox[{"newballots", " ", "=", " ", 
+         RowBox[{"RemoveCandidates", "[", 
+          RowBox[{"ballots", ",", "inneither"}], "]"}]}], ";", 
+        "\[IndentingNewLine]", "\[IndentingNewLine]", 
+        RowBox[{"TotalOverThreshold", " ", "=", " ", "0"}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"(*", " ", 
+         RowBox[{
+          RowBox[{"Eliminate", " ", "over"}], "-", 
+          RowBox[{
+          "threshold", " ", "candidates", " ", "in", " ", "both", " ", 
+           "possibilities"}]}], " ", "*)"}], "\[IndentingNewLine]", 
+        RowBox[{"While", "[", 
+         RowBox[{"True", ",", "\[IndentingNewLine]", 
+          RowBox[{
+           RowBox[{"res", " ", "=", " ", 
+            RowBox[{"TopOne", "[", "newballots", "]"}]}], ";", 
+           "\[IndentingNewLine]", 
+           RowBox[{"Clear", "[", "VotesOverThreshold", "]"}], ";", 
+           "\[IndentingNewLine]", 
+           RowBox[{"CandsOverThreshold", " ", "=", " ", 
+            RowBox[{"{", "}"}]}], ";", "\[IndentingNewLine]", 
+           RowBox[{"Do", "[", "\[IndentingNewLine]", 
+            RowBox[{
+             RowBox[{"If", "[", 
+              RowBox[{
+               RowBox[{
+                RowBox[{"MemberQ", "[", 
+                 RowBox[{"inboth", ",", 
+                  RowBox[{"r", "[", 
+                   RowBox[{"[", "1", "]"}], "]"}]}], "]"}], " ", "&&", " ", 
+                RowBox[{
+                 RowBox[{"r", "[", 
+                  RowBox[{"[", "2", "]"}], "]"}], " ", "\[GreaterEqual]", " ",
+                  "quota"}]}], ",", "\[IndentingNewLine]", 
+               RowBox[{
+                RowBox[{"AppendTo", "[", 
+                 RowBox[{"CandsOverThreshold", ",", 
+                  RowBox[{"r", "[", 
+                   RowBox[{"[", "1", "]"}], "]"}]}], "]"}], ";", 
+                "\[IndentingNewLine]", 
+                RowBox[{
+                 RowBox[{"VotesOverThreshold", "[", 
+                  RowBox[{"r", "[", 
+                   RowBox[{"[", "1", "]"}], "]"}], "]"}], " ", "=", " ", 
+                 RowBox[{"r", "[", 
+                  RowBox[{"[", "2", "]"}], "]"}]}]}]}], "]"}], ",", 
+             "\[IndentingNewLine]", 
+             RowBox[{"{", 
+              RowBox[{"r", ",", "res"}], "}"}]}], "]"}], ";", 
+           "\[IndentingNewLine]", 
+           RowBox[{"NumOverThreshold", " ", "=", " ", 
+            RowBox[{"Length", "[", "CandsOverThreshold", "]"}]}], ";", 
+           "\[IndentingNewLine]", 
+           RowBox[{"If", "[", 
+            RowBox[{
+             RowBox[{"NumOverThreshold", " ", "\[LessEqual]", " ", "0"}], ",", 
+             RowBox[{"Break", "[", "]"}]}], "]"}], ";", "\[IndentingNewLine]", 
+           RowBox[{"TotalOverThreshold", "+=", "NumOverThreshold"}], ";", 
+           "\[IndentingNewLine]", "\[IndentingNewLine]", 
+           RowBox[{"newballots", " ", "=", " ", 
+            RowBox[{"Table", "[", 
+             RowBox[{
+              RowBox[{
+               RowBox[{
+                RowBox[{"{", 
+                 RowBox[{"wt", ",", "prefs"}], "}"}], " ", "=", " ", 
+                "ballot"}], ";", "\[IndentingNewLine]", 
+               RowBox[{"If", "[", 
+                RowBox[{
+                 RowBox[{"MemberQ", "[", 
+                  RowBox[{"CandsOverThreshold", ",", 
+                   RowBox[{"First", "[", "prefs", "]"}]}], "]"}], ",", 
+                 "\[IndentingNewLine]", 
+                 RowBox[{
+                  RowBox[{"totalvotes", " ", "=", " ", 
+                   RowBox[{"VotesOverThreshold", "[", 
+                    RowBox[{"First", "[", "prefs", "]"}], "]"}]}], ";", 
+                  "\[IndentingNewLine]", 
+                  RowBox[{"wt", " ", "*=", " ", 
+                   RowBox[{
+                    RowBox[{"(", 
+                    RowBox[{"totalvotes", " ", "-", " ", "quota"}], ")"}], 
+                    " ", "/", " ", "totalvotes"}]}]}]}], 
+                "\[IndentingNewLine]", "]"}], ";", "\[IndentingNewLine]", 
+               RowBox[{"{", 
+                RowBox[{"wt", ",", "prefs"}], "}"}]}], ",", 
+              "\[IndentingNewLine]", 
+              RowBox[{"{", 
+               RowBox[{"ballot", ",", "newballots"}], "}"}]}], "]"}]}], ";", 
+           "\[IndentingNewLine]", 
+           RowBox[{"newballots", " ", "=", " ", 
+            RowBox[{"RemoveCandidates", "[", 
+             RowBox[{"newballots", ",", "CandsOverThreshold"}], "]"}]}], 
+           ";"}]}], "\[IndentingNewLine]", "]"}], ";", "\[IndentingNewLine]", 
+        "\[IndentingNewLine]", 
+        RowBox[{"total1", " ", "=", " ", 
+         RowBox[{"total2", " ", "=", " ", 
+          RowBox[{"TotalOverThreshold", "*", "quota"}]}]}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"total1", " ", "+=", " ", 
+         RowBox[{"Total", "[", 
+          RowBox[{
+           RowBox[{
+            RowBox[{"#", "[", 
+             RowBox[{"[", "2", "]"}], "]"}], "&"}], " ", "/@", " ", 
+           RowBox[{"Select", "[", 
+            RowBox[{"res", ",", 
+             RowBox[{
+              RowBox[{"MemberQ", "[", 
+               RowBox[{"cands1", ",", 
+                RowBox[{"#", "[", 
+                 RowBox[{"[", "1", "]"}], "]"}]}], "]"}], "&"}]}], "]"}]}], 
+          "]"}]}], ";", "\[IndentingNewLine]", 
+        RowBox[{"total2", " ", "+=", " ", 
+         RowBox[{"Total", "[", 
+          RowBox[{
+           RowBox[{
+            RowBox[{"#", "[", 
+             RowBox[{"[", "2", "]"}], "]"}], "&"}], " ", "/@", " ", 
+           RowBox[{"Select", "[", 
+            RowBox[{"res", ",", 
+             RowBox[{
+              RowBox[{"MemberQ", "[", 
+               RowBox[{"cands2", ",", 
+                RowBox[{"#", "[", 
+                 RowBox[{"[", "1", "]"}], "]"}]}], "]"}], "&"}]}], "]"}]}], 
+          "]"}]}], ";", "\[IndentingNewLine]", 
+        RowBox[{
+         RowBox[{"CprMat", "[", 
+          RowBox[{"[", 
+           RowBox[{"k1", ",", "k2"}], "]"}], "]"}], "=", "total1"}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{
+         RowBox[{"CprMat", "[", 
+          RowBox[{"[", 
+           RowBox[{"k2", ",", "k1"}], "]"}], "]"}], "=", "total2"}]}], ",", 
+       "\[IndentingNewLine]", 
+       RowBox[{"{", 
+        RowBox[{"k1", ",", 
+         RowBox[{"ncp", "-", "1"}]}], "}"}], ",", 
+       RowBox[{"{", 
+        RowBox[{"k2", ",", 
+         RowBox[{"k1", "+", "1"}], ",", "ncp"}], "}"}]}], "]"}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"{", 
+      RowBox[{"candposses", ",", "CprMat"}], "}"}]}]}], "\[IndentingNewLine]",
+    "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+   RowBox[{"http", ":"}], "//", 
+   RowBox[{
+    RowBox[{
+     RowBox[{
+      RowBox[{"en", ".", "wikipedia", ".", "org"}], "/", "wiki"}], "/", 
+     "Schulze_STV"}], "\[IndentingNewLine]", "Not", " ", "implemented", " ", 
+    "because", " ", "of", " ", "the", " ", "difficulty", " ", "of", " ", 
+    "understanding", " ", "the", " ", "algorithm"}]}], "\[IndentingNewLine]", 
+  "*)"}]], "Input"]
+}, Closed]],
+
+Cell[CellGroupData[{
+
+Cell["Condorcet Setup", "Subsection"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"CondorcetMatrix", "[", "ballots_", "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{
+     "cands", ",", "n", ",", "cdix", ",", "prefmat", ",", "ballot", ",", "wt",
+       ",", "prefs", ",", "ranks", ",", "k", ",", " ", "k1", ",", " ", "k2"}],
+      "}"}], ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"cands", " ", "=", " ", 
+      RowBox[{"GetCandidates", "[", "ballots", "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"n", " ", "=", " ", 
+      RowBox[{"Length", "[", "cands", "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"lstoix", "[", 
+      RowBox[{"cands", ",", "cdix"}], "]"}], ";", "\[IndentingNewLine]", 
+     "\[IndentingNewLine]", 
+     RowBox[{"(*", " ", 
+      RowBox[{"prefmat", " ", "is", " ", "that", " ", "matrix"}], " ", "*)"}],
+      "\[IndentingNewLine]", 
+     RowBox[{"prefmat", " ", "=", " ", 
+      RowBox[{"ConstantArray", "[", 
+       RowBox[{"0", ",", 
+        RowBox[{"{", 
+         RowBox[{"n", ",", "n"}], "}"}]}], "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"Do", "[", 
+      RowBox[{
+       RowBox[{
+        RowBox[{
+         RowBox[{"{", 
+          RowBox[{"wt", ",", "prefs"}], "}"}], " ", "=", " ", "ballot"}], ";",
+         "\[IndentingNewLine]", 
+        RowBox[{"(*", " ", 
+         RowBox[{
+          RowBox[{"Ranks", "--"}], " ", "ranked", " ", "candidates", " ", 
+          "get", " ", "from", " ", "at", " ", "least", " ", "1", " ", "to", 
+          " ", "n", " ", 
+          RowBox[{
+           RowBox[{"(", 
+            RowBox[{"max", " ", "rank"}], ")"}], ".", "\[IndentingNewLine]", 
+           "Unranked"}], " ", "ones", " ", "get", " ", "0."}], " ", "*)"}], 
+        "\[IndentingNewLine]", 
+        RowBox[{"ranks", " ", "=", " ", 
+         RowBox[{"ConstantArray", "[", 
+          RowBox[{"0", ",", "n"}], "]"}]}], ";", "\[IndentingNewLine]", 
+        RowBox[{"Do", "[", 
+         RowBox[{
+          RowBox[{
+           RowBox[{"ranks", "[", 
+            RowBox[{"[", 
+             RowBox[{"cdix", "[", 
+              RowBox[{"prefs", "[", 
+               RowBox[{"[", "k", "]"}], "]"}], "]"}], "]"}], "]"}], " ", "=", 
+           " ", 
+           RowBox[{"n", " ", "-", " ", "k", " ", "+", " ", "1"}]}], ",", 
+          RowBox[{"{", 
+           RowBox[{"k", ",", 
+            RowBox[{"Length", "[", "prefs", "]"}]}], "}"}]}], "]"}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"Do", "[", 
+         RowBox[{
+          RowBox[{"If", "[", 
+           RowBox[{
+            RowBox[{
+             RowBox[{"ranks", "[", 
+              RowBox[{"[", "k1", "]"}], "]"}], " ", ">", " ", 
+             RowBox[{"ranks", "[", 
+              RowBox[{"[", "k2", "]"}], "]"}]}], ",", 
+            RowBox[{
+             RowBox[{"prefmat", "[", 
+              RowBox[{"[", 
+               RowBox[{"k1", ",", "k2"}], "]"}], "]"}], " ", "+=", " ", 
+             "wt"}]}], "]"}], ",", 
+          RowBox[{"{", 
+           RowBox[{"k1", ",", "n"}], "}"}], ",", 
+          RowBox[{"{", 
+           RowBox[{"k2", ",", "n"}], "}"}]}], "]"}]}], ",", 
+       "\[IndentingNewLine]", 
+       RowBox[{"{", 
+        RowBox[{"ballot", ",", "ballots"}], "}"}]}], "]"}], ";", 
+     "\[IndentingNewLine]", "\[IndentingNewLine]", "prefmat"}]}], 
+   "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+  "PrefOrderFunction", " ", "takes", " ", "the", " ", "Condorcet", " ", 
+   "matrix", " ", "and", " ", "returns", " ", "the", " ", "preference", " ", 
+   "order", " ", "as", " ", "indices"}], " ", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"CondorcetPrefOrder", "[", 
+   RowBox[{"ballots_", ",", "PrefOrderFunction_"}], "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"cands", ",", "preforder"}], "}"}], ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"cands", " ", "=", " ", 
+      RowBox[{"GetCandidates", "[", "ballots", "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"preforder", " ", "=", " ", 
+      RowBox[{"PrefOrderFunction", "[", 
+       RowBox[{"CondorcetMatrix", "[", "ballots", "]"}], "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"cands", "[", 
+      RowBox[{"[", "preforder", "]"}], "]"}]}]}], "\[IndentingNewLine]", 
+   "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+  "PrefCountFunction", " ", "takes", " ", "the", " ", "Condorcet", " ", 
+   "matrix", " ", "and", " ", "returns", " ", "a", " ", "count", " ", "or", 
+   " ", "some", " ", "other", " ", "value", " ", "for", " ", "each", " ", 
+   "candidate"}], " ", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"CondorcetPrefCount", "[", 
+   RowBox[{"ballots_", ",", "PrefCountFunction_"}], "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"cands", ",", "prefcount"}], "}"}], ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"cands", " ", "=", " ", 
+      RowBox[{"GetCandidates", "[", "ballots", "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"prefcount", " ", "=", " ", 
+      RowBox[{"PrefCountFunction", "[", 
+       RowBox[{"CondorcetMatrix", "[", "ballots", "]"}], "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"SortBy", "[", 
+      RowBox[{
+       RowBox[{"Transpose", "[", 
+        RowBox[{"{", 
+         RowBox[{"cands", ",", "prefcount"}], "}"}], "]"}], ",", 
+       RowBox[{
+        RowBox[{"{", 
+         RowBox[{
+          RowBox[{"-", 
+           RowBox[{"#", "[", 
+            RowBox[{"[", "2", "]"}], "]"}]}], ",", 
+          RowBox[{"#", "[", 
+           RowBox[{"[", "1", "]"}], "]"}]}], "}"}], "&"}]}], "]"}]}]}], 
+   "\[IndentingNewLine]", "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+   RowBox[{
+    RowBox[{
+     RowBox[{"Find", " ", "all", " ", "permutations", " ", "of", " ", "1"}], 
+     " ", "..."}], " ", "n", " ", "and", " ", "call", " ", "a", " ", 
+    "function", " ", "on", " ", "each", " ", "permutation", " ", "with", " ", 
+    "argments", " ", 
+    RowBox[{"(", "permutation", ")"}]}], ",", " ", 
+   RowBox[{"(", "data", ")"}], ",", " ", 
+   RowBox[{
+   "a", " ", "function", " ", "that", " ", "returns", " ", "an", " ", 
+    "updated", " ", "value", " ", "of", " ", 
+    RowBox[{
+     RowBox[{"(", "data", ")"}], ".", "\[IndentingNewLine]", 
+     "\[IndentingNewLine]", "Done"}], " ", "using", " ", "a", " ", 
+    "lexicographic", " ", "sorting", " ", "algorithm", " ", "to", " ", 
+    "avoid", " ", "creating", " ", "a", " ", "big", " ", "list"}], ",", " ", 
+   RowBox[{"as", " ", 
+    RowBox[{"Permutations", "[", "]"}], " ", "does"}]}], " ", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"ApplyPermutations", "[", 
+   RowBox[{"n_", ",", "f_", ",", "data_"}], "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{
+     "seq", ",", "dnew", ",", "ix", ",", "i", ",", "sqix", ",", "iy", ",", 
+      "sqiy", ",", "si"}], "}"}], ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"seq", " ", "=", " ", 
+      RowBox[{"Range", "[", "n", "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"dnew", " ", "=", " ", 
+      RowBox[{"f", "[", 
+       RowBox[{"seq", ",", "data"}], "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"While", "[", 
+      RowBox[{"True", ",", "\[IndentingNewLine]", 
+       RowBox[{"(*", " ", 
+        RowBox[{"Find", " ", "rightmost", " ", "member", " ", 
+         RowBox[{"that", "'"}], "s", " ", "smaller", " ", "than", " ", "the", 
+         " ", "one", " ", "just", " ", "after", " ", "it"}], " ", "*)"}], 
+       "\[IndentingNewLine]", 
+       RowBox[{
+        RowBox[{"ix", " ", "=", " ", 
+         RowBox[{"-", "1"}]}], ";", "\[IndentingNewLine]", 
+        RowBox[{"Do", "[", 
+         RowBox[{
+          RowBox[{"If", "[", 
+           RowBox[{
+            RowBox[{
+             RowBox[{"seq", "[", 
+              RowBox[{"[", "i", "]"}], "]"}], "<", 
+             RowBox[{"seq", "[", 
+              RowBox[{"[", 
+               RowBox[{"i", "+", "1"}], "]"}], "]"}]}], ",", 
+            "\[IndentingNewLine]", 
+            RowBox[{
+             RowBox[{"ix", " ", "=", " ", "i"}], ";", " ", 
+             RowBox[{"Break", "[", "]"}]}]}], "]"}], ",", 
+          "\[IndentingNewLine]", 
+          RowBox[{"{", 
+           RowBox[{"i", ",", 
+            RowBox[{"n", "-", "1"}], ",", "1", ",", 
+            RowBox[{"-", "1"}]}], "}"}]}], "]"}], ";", "\[IndentingNewLine]", 
+        
+        RowBox[{"(*", " ", 
+         RowBox[{
+          RowBox[{"If", " ", "there", " ", "is", " ", "none"}], ",", " ", 
+          RowBox[{"then", " ", 
+           RowBox[{"we", "'"}], "re", " ", "done"}]}], " ", "*)"}], 
+        "\[IndentingNewLine]", 
+        RowBox[{"If", "[", 
+         RowBox[{
+          RowBox[{"ix", " ", "<", " ", "0"}], ",", 
+          RowBox[{"Break", "[", "]"}]}], "]"}], ";", "\[IndentingNewLine]", 
+        RowBox[{"(*", " ", 
+         RowBox[{
+         "Find", " ", "smallest", " ", "member", " ", "greater", " ", "than", 
+          " ", "the", " ", "ix", " ", "member"}], " ", "*)"}], 
+        "\[IndentingNewLine]", 
+        RowBox[{"sqix", " ", "=", " ", 
+         RowBox[{"seq", "[", 
+          RowBox[{"[", "ix", "]"}], "]"}]}], ";", "\[IndentingNewLine]", 
+        RowBox[{"iy", " ", "=", " ", 
+         RowBox[{"ix", " ", "+", " ", "1"}]}], ";", "\[IndentingNewLine]", 
+        RowBox[{"sqiy", " ", "=", " ", 
+         RowBox[{"seq", "[", 
+          RowBox[{"[", "iy", "]"}], "]"}]}], ";", "\[IndentingNewLine]", 
+        RowBox[{"Do", "[", "\[IndentingNewLine]", 
+         RowBox[{
+          RowBox[{
+           RowBox[{"si", " ", "=", " ", 
+            RowBox[{"seq", "[", 
+             RowBox[{"[", "i", "]"}], "]"}]}], ";", "\[IndentingNewLine]", 
+           RowBox[{"If", "[", 
+            RowBox[{
+             RowBox[{
+              RowBox[{"si", " ", ">", " ", "sqix"}], " ", "&&", " ", 
+              RowBox[{"si", " ", "<", " ", "sqiy"}]}], ",", 
+             "\[IndentingNewLine]", 
+             RowBox[{
+              RowBox[{"iy", " ", "=", " ", "i"}], ";", " ", 
+              RowBox[{"sqiy", " ", "=", " ", "si"}]}]}], "]"}]}], ",", 
+          "\[IndentingNewLine]", 
+          RowBox[{"{", 
+           RowBox[{"i", ",", 
+            RowBox[{"ix", "+", "2"}], ",", "n"}], "}"}]}], "]"}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"(*", " ", 
+         RowBox[{
+         "Swap", " ", "the", " ", "two", " ", "previous", " ", "members", " ",
+           "found"}], " ", "*)"}], "\[IndentingNewLine]", 
+        RowBox[{
+         RowBox[{"seq", "[", 
+          RowBox[{"[", "ix", "]"}], "]"}], " ", "=", " ", "sqiy"}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{
+         RowBox[{"seq", "[", 
+          RowBox[{"[", "iy", "]"}], "]"}], " ", "=", " ", "sqix"}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"(*", " ", 
+         RowBox[{"Sort", " ", 
+          RowBox[{"what", "'"}], "s", " ", "beyond", " ", "the", " ", "lower",
+           " ", "one"}], " ", "*)"}], "\[IndentingNewLine]", 
+        RowBox[{"seq", " ", "=", " ", 
+         RowBox[{"Join", "[", 
+          RowBox[{
+           RowBox[{"seq", "[", 
+            RowBox[{"[", 
+             RowBox[{";;", "ix"}], "]"}], "]"}], ",", 
+           RowBox[{"Sort", "[", 
+            RowBox[{"seq", "[", 
+             RowBox[{"[", 
+              RowBox[{
+               RowBox[{"ix", "+", "1"}], ";;"}], "]"}], "]"}], "]"}]}], 
+          "]"}]}], ";", "\[IndentingNewLine]", 
+        RowBox[{"dnew", " ", "=", " ", 
+         RowBox[{"f", "[", 
+          RowBox[{"seq", ",", "dnew"}], "]"}]}]}]}], "\[IndentingNewLine]", 
+      "]"}], ";", "\[IndentingNewLine]", "dnew"}]}], "\[IndentingNewLine]", 
+   "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+  "All", " ", "the", " ", "disjoint", " ", "cycles", " ", "in", " ", "a", " ",
+    "permutation"}], " ", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"permcycles", "[", "perm_", "]"}], " ", ":=", " ", 
+  RowBox[{"PermutationCycles", "[", 
+   RowBox[{"perm", ",", "Identity"}], "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{"Acyclic", "-", 
+   RowBox[{"graph", " ", "testing"}]}], " ", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"IsAcyclic", "[", "blext_", "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", "blxgraf", "}"}], ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"blxgraf", " ", "=", " ", 
+      RowBox[{"Graph", "[", 
+       RowBox[{
+        RowBox[{
+         RowBox[{"(", 
+          RowBox[{"DirectedEdge", " ", "@@", " ", "#"}], ")"}], "&"}], " ", "/@",
+         " ", "blext"}], "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"AcyclicGraphQ", "[", "blxgraf", "]"}]}]}], 
+   "\[IndentingNewLine]", "]"}]}]], "Input"]
+}, Closed]],
+
+Cell[CellGroupData[{
+
+Cell["Condorcet Methods", "Subsection"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"CondorcetWinnerIndex", "[", "prefmat_", "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"n", ",", "i", ",", "j", ",", "wix", ",", "wixtot"}], "}"}], ",",
+     "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"n", " ", "=", " ", 
+      RowBox[{"Length", "[", "prefmat", "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"wixtot", " ", "=", " ", "Null"}], ";", "\[IndentingNewLine]", 
+     RowBox[{"Do", "[", 
+      RowBox[{
+       RowBox[{
+        RowBox[{"wix", " ", "=", " ", "i"}], ";", "\[IndentingNewLine]", 
+        RowBox[{"Do", "[", "\[IndentingNewLine]", 
+         RowBox[{
+          RowBox[{"If", "[", 
+           RowBox[{
+            RowBox[{
+             RowBox[{"j", "\[NotEqual]", "i"}], " ", "&&", " ", 
+             RowBox[{
+              RowBox[{"prefmat", "[", 
+               RowBox[{"[", 
+                RowBox[{"i", ",", "j"}], "]"}], "]"}], " ", "\[LessEqual]", 
+              " ", 
+              RowBox[{"prefmat", "[", 
+               RowBox[{"[", 
+                RowBox[{"j", ",", "i"}], "]"}], "]"}]}]}], ",", 
+            "\[IndentingNewLine]", 
+            RowBox[{
+             RowBox[{"wix", " ", "=", " ", "Null"}], ";", 
+             "\[IndentingNewLine]", 
+             RowBox[{"Break", "[", "]"}]}]}], "]"}], ",", 
+          "\[IndentingNewLine]", 
+          RowBox[{"{", 
+           RowBox[{"j", ",", "n"}], "}"}]}], "]"}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"If", "[", 
+         RowBox[{
+          RowBox[{"wix", " ", "=!=", "Null"}], ",", "\[IndentingNewLine]", 
+          RowBox[{
+           RowBox[{"wixtot", " ", "=", " ", "wix"}], ";", 
+           "\[IndentingNewLine]", 
+           RowBox[{"Break", "[", "]"}]}]}], "\[IndentingNewLine]", "]"}]}], 
+       ",", "\[IndentingNewLine]", 
+       RowBox[{"{", 
+        RowBox[{"i", ",", "n"}], "}"}]}], "]"}], ";", "\[IndentingNewLine]", 
+     "wixtot"}]}], "\[IndentingNewLine]", "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"CondorcetWinner", "[", "ballots_", "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"cands", ",", "wix"}], "}"}], ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"cands", " ", "=", " ", 
+      RowBox[{"GetCandidates", "[", "ballots", "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"wix", " ", "=", " ", 
+      RowBox[{"CondorcetWinnerIndex", "[", 
+       RowBox[{"CondorcetMatrix", "[", "ballots", "]"}], "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"If", "[", 
+      RowBox[{
+       RowBox[{"wix", " ", "=!=", " ", "Null"}], ",", " ", 
+       RowBox[{"{", 
+        RowBox[{"True", ",", 
+         RowBox[{"cands", "[", 
+          RowBox[{"[", "wix", "]"}], "]"}]}], "}"}], ",", " ", 
+       RowBox[{"{", "False", "}"}]}], "]"}]}]}], "\[IndentingNewLine]", 
+   "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+   RowBox[{"Schulze", " ", 
+    RowBox[{"beatpath", " ", "--"}], " ", 
+    RowBox[{"http", ":"}]}], "//", 
+   RowBox[{
+    RowBox[{
+     RowBox[{"en", ".", "wikipedia", ".", "org"}], "/", "wiki"}], "/", 
+    "Schulze_method"}]}], " ", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"SchulzeOrdering", "[", 
+   RowBox[{"bpmat_", ",", "i_", ",", "j_"}], "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"bij", ",", "bji"}], "}"}], ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"bij", " ", "=", " ", 
+      RowBox[{"bpmat", "[", 
+       RowBox[{"[", 
+        RowBox[{"i", ",", "j"}], "]"}], "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"bji", " ", "=", " ", 
+      RowBox[{"bpmat", "[", 
+       RowBox[{"[", 
+        RowBox[{"j", ",", "i"}], "]"}], "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"If", "[", 
+      RowBox[{
+       RowBox[{"bji", " ", "\[NotEqual]", " ", "bij"}], ",", 
+       RowBox[{"bij", " ", ">", " ", "bji"}], ",", " ", 
+       RowBox[{"i", "\[LessEqual]", "j"}]}], "]"}]}]}], "\[IndentingNewLine]",
+    "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"SchulzePrefOrder", "[", "prefmat_", "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"n", ",", "i", ",", "j", ",", "k", ",", " ", "bpmat"}], "}"}], 
+    ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"n", " ", "=", " ", 
+      RowBox[{"Length", "[", "prefmat", "]"}]}], ";", "\[IndentingNewLine]", 
+     "\[IndentingNewLine]", 
+     RowBox[{"(*", " ", "Beatpaths", " ", "*)"}], "\[IndentingNewLine]", 
+     RowBox[{"bpmat", " ", "=", " ", 
+      RowBox[{"ConstantArray", "[", 
+       RowBox[{"0", ",", 
+        RowBox[{"{", 
+         RowBox[{"n", ",", "n"}], "}"}]}], "]"}]}], ";", 
+     "\[IndentingNewLine]", "\[IndentingNewLine]", 
+     RowBox[{"(*", " ", 
+      RowBox[{
+       RowBox[{"Variant", " ", "of", " ", "Floyd"}], "-", 
+       RowBox[{"Warshall", " ", "algorithm"}]}], " ", "*)"}], 
+     "\[IndentingNewLine]", 
+     RowBox[{"Do", "[", "\[IndentingNewLine]", 
+      RowBox[{
+       RowBox[{"If", "[", 
+        RowBox[{
+         RowBox[{"j", " ", "\[NotEqual]", " ", "i"}], ",", 
+         "\[IndentingNewLine]", 
+         RowBox[{
+          RowBox[{"bpmat", "[", 
+           RowBox[{"[", 
+            RowBox[{"i", ",", "j"}], "]"}], "]"}], " ", "=", " ", 
+          RowBox[{"If", "[", 
+           RowBox[{
+            RowBox[{
+             RowBox[{"prefmat", "[", 
+              RowBox[{"[", 
+               RowBox[{"i", ",", "j"}], "]"}], "]"}], " ", ">", " ", 
+             RowBox[{"prefmat", "[", 
+              RowBox[{"[", 
+               RowBox[{"j", ",", "i"}], "]"}], "]"}]}], ",", 
+            "\[IndentingNewLine]", 
+            RowBox[{"prefmat", "[", 
+             RowBox[{"[", 
+              RowBox[{"i", ",", "j"}], "]"}], "]"}], ",", " ", "0"}], 
+           "]"}]}]}], "\[IndentingNewLine]", "]"}], ",", 
+       "\[IndentingNewLine]", 
+       RowBox[{"{", 
+        RowBox[{"i", ",", "n"}], "}"}], ",", 
+       RowBox[{"{", 
+        RowBox[{"j", ",", "n"}], "}"}]}], "]"}], ";", "\[IndentingNewLine]", 
+     "\[IndentingNewLine]", 
+     RowBox[{"Do", "[", "\[IndentingNewLine]", 
+      RowBox[{
+       RowBox[{"If", "[", 
+        RowBox[{
+         RowBox[{"j", "\[NotEqual]", "i"}], ",", "\[IndentingNewLine]", 
+         RowBox[{"Do", "[", "\[IndentingNewLine]", 
+          RowBox[{
+           RowBox[{"If", "[", 
+            RowBox[{
+             RowBox[{
+              RowBox[{"i", "\[NotEqual]", "k"}], " ", "&&", " ", 
+              RowBox[{"j", "\[NotEqual]", "k"}]}], ",", "\[IndentingNewLine]", 
+             RowBox[{
+              RowBox[{"bpmat", "[", 
+               RowBox[{"[", 
+                RowBox[{"j", ",", "k"}], "]"}], "]"}], " ", "=", " ", 
+              RowBox[{"Max", "[", 
+               RowBox[{
+                RowBox[{"bpmat", "[", 
+                 RowBox[{"[", 
+                  RowBox[{"j", ",", "k"}], "]"}], "]"}], ",", 
+                RowBox[{"Min", "[", 
+                 RowBox[{
+                  RowBox[{"bpmat", "[", 
+                   RowBox[{"[", 
+                    RowBox[{"j", ",", "i"}], "]"}], "]"}], ",", 
+                  RowBox[{"bpmat", "[", 
+                   RowBox[{"[", 
+                    RowBox[{"i", ",", "k"}], "]"}], "]"}]}], "]"}]}], 
+               "]"}]}]}], "\[IndentingNewLine]", "]"}], ",", 
+           "\[IndentingNewLine]", 
+           RowBox[{"{", 
+            RowBox[{"k", ",", "n"}], "}"}]}], "]"}]}], "\[IndentingNewLine]", 
+        "]"}], ",", "\[IndentingNewLine]", 
+       RowBox[{"{", 
+        RowBox[{"i", ",", "n"}], "}"}], ",", 
+       RowBox[{"{", 
+        RowBox[{"j", ",", "n"}], "}"}]}], "]"}], ";", "\[IndentingNewLine]", 
+     "\[IndentingNewLine]", 
+     RowBox[{"Sort", "[", 
+      RowBox[{
+       RowBox[{"Range", "[", "n", "]"}], ",", 
+       RowBox[{
+        RowBox[{"SchulzeOrdering", "[", 
+         RowBox[{"bpmat", ",", "#1", ",", "#2"}], "]"}], "&"}]}], "]"}]}]}], 
+   "\[IndentingNewLine]", "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"Schulze", "[", "ballots_", "]"}], " ", ":=", " ", 
+  RowBox[{"CondorcetPrefOrder", "[", 
+   RowBox[{"ballots", ",", "SchulzePrefOrder"}], "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"CPOSTVSchulze", "[", 
+   RowBox[{"ballots_", ",", "num_"}], "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"candsets", ",", "prefmat", ",", "pmord"}], "}"}], ",", 
+    "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{
+      RowBox[{"{", 
+       RowBox[{"candsets", ",", "prefmat"}], "}"}], " ", "=", " ", 
+      RowBox[{"CompPairOutcomesSTV", "[", 
+       RowBox[{"ballots", ",", "num"}], "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"pmord", " ", "=", " ", 
+      RowBox[{"SchulzePrefOrder", "[", "prefmat", "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"If", "[", 
+      RowBox[{
+       RowBox[{
+        RowBox[{"Length", "[", "pmord", "]"}], " ", ">", " ", "0"}], ",", " ", 
+       RowBox[{"candsets", "[", 
+        RowBox[{"[", 
+         RowBox[{"First", "[", "pmord", "]"}], "]"}], "]"}]}], "]"}]}]}], 
+   "\[IndentingNewLine]", "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+   RowBox[{"Copeland", " ", "pairwise", " ", 
+    RowBox[{"aggregation", " ", "--"}], " ", 
+    RowBox[{"http", ":"}]}], "//", 
+   RowBox[{
+    RowBox[{
+     RowBox[{
+      RowBox[{"en", ".", "wikipedia", ".", "org"}], "/", "wiki"}], "/", 
+     "Copeland"}], "%27", "s_method"}]}], " ", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"CopelandPrefCount", "[", "prefmat_", "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{
+     "n", ",", "k1", ",", "k2", ",", "counts", ",", "p12", ",", "p21"}], 
+     "}"}], ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"n", "=", " ", 
+      RowBox[{"Length", "[", "prefmat", "]"}]}], ";", "\[IndentingNewLine]", 
+     "\[IndentingNewLine]", 
+     RowBox[{"counts", " ", "=", " ", 
+      RowBox[{"ConstantArray", "[", 
+       RowBox[{"0", ",", "n"}], "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"Do", "[", 
+      RowBox[{
+       RowBox[{
+        RowBox[{"p12", " ", "=", " ", 
+         RowBox[{"prefmat", "[", 
+          RowBox[{"[", 
+           RowBox[{"k1", ",", "k2"}], "]"}], "]"}]}], ";", " ", 
+        RowBox[{"p21", " ", "=", " ", 
+         RowBox[{"prefmat", "[", 
+          RowBox[{"[", 
+           RowBox[{"k2", ",", "k1"}], "]"}], "]"}]}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"If", "[", 
+         RowBox[{
+          RowBox[{"p12", " ", ">", " ", "p21"}], ",", 
+          RowBox[{
+           RowBox[{"counts", "[", 
+            RowBox[{"[", "k1", "]"}], "]"}], "++"}]}], "]"}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"If", "[", 
+         RowBox[{
+          RowBox[{"p12", " ", "<", " ", "p21"}], ",", 
+          RowBox[{
+           RowBox[{"counts", "[", 
+            RowBox[{"[", "k1", "]"}], "]"}], "--"}]}], "]"}]}], ",", 
+       "\[IndentingNewLine]", 
+       RowBox[{"{", 
+        RowBox[{"k1", ",", "n"}], "}"}], ",", 
+       RowBox[{"{", 
+        RowBox[{"k2", ",", "n"}], "}"}]}], "]"}], ";", "\[IndentingNewLine]", 
+     "counts"}]}], "\[IndentingNewLine]", "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"Copeland", "[", "ballots_", "]"}], " ", ":=", " ", 
+  RowBox[{"CondorcetPrefCount", "[", 
+   RowBox[{"ballots", ",", "CopelandPrefCount"}], "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+   RowBox[{
+    RowBox[{
+     RowBox[{"http", ":"}], "//", 
+     RowBox[{
+      RowBox[{
+       RowBox[{
+        RowBox[{"en", ".", "wikipedia", ".", "org"}], "/", "wiki"}], "/", 
+       "Minimax_condorcet"}], "\[IndentingNewLine]", 
+      RowBox[{"which", " ", "--"}], " ", "which", " ", 
+      RowBox[{"method", ":", " ", "\"\<wins\>\""}]}]}], " ", "=", " ", 
+    RowBox[{"winning", " ", "votes"}]}], ",", " ", 
+   RowBox[{"\"\<marg\>\"", " ", "=", " ", "margins"}], ",", " ", 
+   RowBox[{"\"\<oppo\>\"", " ", "=", " ", 
+    RowBox[{"pairwise", " ", "opposition"}]}]}], " ", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"MinimaxPrefCount", "[", 
+   RowBox[{"prefmat_", ",", " ", "which_"}], "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"n", ",", "score", ",", "newscore", ",", "kx"}], "}"}], ",", 
+    "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"n", " ", "=", " ", 
+      RowBox[{"Length", "[", "prefmat", "]"}]}], ";", "\[IndentingNewLine]", 
+     "\[IndentingNewLine]", 
+     RowBox[{"Table", "[", 
+      RowBox[{
+       RowBox[{
+        RowBox[{"score", "  ", "=", " ", "Null"}], ";", "\[IndentingNewLine]", 
+        RowBox[{"Do", "[", "\[IndentingNewLine]", 
+         RowBox[{
+          RowBox[{
+           RowBox[{"If", "[", 
+            RowBox[{
+             RowBox[{"kx", " ", "\[Equal]", " ", "k"}], ",", 
+             RowBox[{"Continue", "[", "]"}]}], "]"}], ";", 
+           "\[IndentingNewLine]", 
+           RowBox[{"newscore", " ", "=", " ", 
+            RowBox[{"Switch", "[", 
+             RowBox[{"which", ",", "\[IndentingNewLine]", "\"\<wins\>\"", ",", 
+              RowBox[{"If", "[", 
+               RowBox[{
+                RowBox[{
+                 RowBox[{"prefmat", "[", 
+                  RowBox[{"[", 
+                   RowBox[{"kx", ",", "k"}], "]"}], "]"}], " ", ">", " ", 
+                 RowBox[{"prefmat", "[", 
+                  RowBox[{"[", 
+                   RowBox[{"k", ",", "kx"}], "]"}], "]"}]}], ",", 
+                RowBox[{"prefmat", "[", 
+                 RowBox[{"[", 
+                  RowBox[{"kx", ",", "k"}], "]"}], "]"}], ",", "0"}], "]"}], 
+              ",", "\[IndentingNewLine]", "\"\<marg\>\"", ",", 
+              RowBox[{
+               RowBox[{"prefmat", "[", 
+                RowBox[{"[", 
+                 RowBox[{"kx", ",", "k"}], "]"}], "]"}], " ", "-", " ", 
+               RowBox[{"prefmat", "[", 
+                RowBox[{"[", 
+                 RowBox[{"k", ",", "kx"}], "]"}], "]"}]}], ",", 
+              "\[IndentingNewLine]", "\"\<oppo\>\"", ",", 
+              RowBox[{"prefmat", "[", 
+               RowBox[{"[", 
+                RowBox[{"kx", ",", "k"}], "]"}], "]"}]}], 
+             "\[IndentingNewLine]", "]"}]}], ";", "\[IndentingNewLine]", 
+           RowBox[{"If", "[", 
+            RowBox[{
+             RowBox[{"score", " ", "===", " ", "Null"}], ",", 
+             "\[IndentingNewLine]", 
+             RowBox[{"score", " ", "=", " ", "newscore"}], ",", 
+             "\[IndentingNewLine]", 
+             RowBox[{"If", "[", 
+              RowBox[{
+               RowBox[{"newscore", " ", ">", " ", "score"}], ",", " ", 
+               RowBox[{"score", " ", "=", " ", "newscore"}]}], "]"}]}], 
+            "\[IndentingNewLine]", "]"}]}], ",", "\[IndentingNewLine]", 
+          RowBox[{"{", 
+           RowBox[{"kx", ",", "n"}], "}"}]}], "]"}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"If", "[", 
+         RowBox[{
+          RowBox[{"n", ">", "1"}], ",", 
+          RowBox[{"-", "score"}], ",", "0"}], "]"}]}], ",", 
+       "\[IndentingNewLine]", 
+       RowBox[{"{", 
+        RowBox[{"k", ",", "n"}], "}"}]}], "]"}]}]}], "\[IndentingNewLine]", 
+   "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"Minimax", "[", 
+   RowBox[{"ballots_", ",", "which_"}], "]"}], " ", ":=", " ", 
+  RowBox[{"CondorcetPrefCount", "[", 
+   RowBox[{"ballots", ",", " ", 
+    RowBox[{
+     RowBox[{"MinimaxPrefCount", "[", 
+      RowBox[{"#", ",", "which"}], "]"}], "&"}]}], "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+   RowBox[{"http", ":"}], "//", 
+   RowBox[{
+    RowBox[{
+     RowBox[{
+      RowBox[{"en", ".", "wikipedia", ".", "org"}], "/", "wiki"}], "/", 
+     "Kemeny"}], "%", "E2", "%80", "%93", "Young_method"}]}], " ", 
+  "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"KemenyYoungForPermute", "[", 
+   RowBox[{"prefmat_", ",", "perm_", ",", "data_"}], "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{
+     "n", ",", "bestperm", ",", "bestscore", ",", "score", ",", "k1", ",", 
+      "k2"}], "}"}], ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"n", " ", "=", " ", 
+      RowBox[{"Length", "[", "prefmat", "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{
+      RowBox[{"{", 
+       RowBox[{"bestperm", ",", "bestscore"}], "}"}], " ", "=", " ", "data"}],
+      ";", "\[IndentingNewLine]", 
+     RowBox[{"score", " ", "=", " ", 
+      RowBox[{"Sum", "[", 
+       RowBox[{
+        RowBox[{"prefmat", "[", 
+         RowBox[{"[", 
+          RowBox[{
+           RowBox[{"perm", "[", 
+            RowBox[{"[", "k1", "]"}], "]"}], ",", 
+           RowBox[{"perm", "[", 
+            RowBox[{"[", "k2", "]"}], "]"}]}], "]"}], "]"}], ",", 
+        "\[IndentingNewLine]", 
+        RowBox[{"{", 
+         RowBox[{"k1", ",", 
+          RowBox[{"n", "-", "1"}]}], "}"}], ",", 
+        RowBox[{"{", 
+         RowBox[{"k2", ",", 
+          RowBox[{"k1", "+", "1"}], ",", "n"}], "}"}]}], "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"If", "[", 
+      RowBox[{
+       RowBox[{"bestscore", " ", "===", " ", "Null"}], ",", 
+       "\[IndentingNewLine]", 
+       RowBox[{
+        RowBox[{"bestperm", " ", "=", " ", "perm"}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"bestscore", " ", "=", " ", "score"}]}], ",", 
+       "\[IndentingNewLine]", 
+       RowBox[{"If", "[", 
+        RowBox[{
+         RowBox[{"score", " ", ">", " ", "bestscore"}], ",", 
+         "\[IndentingNewLine]", 
+         RowBox[{
+          RowBox[{"bestperm", " ", "=", " ", "perm"}], ";", 
+          "\[IndentingNewLine]", 
+          RowBox[{"bestscore", " ", "=", " ", "score"}]}]}], "]"}]}], 
+      "\[IndentingNewLine]", "]"}], ";", "\[IndentingNewLine]", 
+     RowBox[{"{", 
+      RowBox[{"bestperm", ",", "bestscore"}], "}"}]}]}], 
+   "\[IndentingNewLine]", "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"KemenyYoungPrefOrder", "[", "prefmat_", "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"n", ",", "data"}], "}"}], ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"n", " ", "=", " ", 
+      RowBox[{"Length", "[", "prefmat", "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"data", " ", "=", " ", 
+      RowBox[{"{", 
+       RowBox[{
+        RowBox[{"Range", "[", "n", "]"}], ",", "Null"}], "}"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"data", " ", "=", " ", 
+      RowBox[{"ApplyPermutations", "[", 
+       RowBox[{"n", ",", 
+        RowBox[{
+         RowBox[{"KemenyYoungForPermute", "[", 
+          RowBox[{"prefmat", ",", "#1", ",", "#2"}], "]"}], "&"}], ",", 
+        "data"}], "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"data", "[", 
+      RowBox[{"[", "1", "]"}], "]"}]}]}], "\[IndentingNewLine]", 
+   "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"KemenyYoung", "[", "ballots_", "]"}], " ", ":=", " ", 
+  RowBox[{"CondorcetPrefOrder", "[", 
+   RowBox[{"ballots", ",", "KemenyYoungPrefOrder"}], "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+   RowBox[{"https", ":"}], "//", 
+   RowBox[{
+    RowBox[{
+     RowBox[{
+      RowBox[{"en", ".", "wikipedia", ".", "org"}], "/", "wiki"}], "/", 
+     RowBox[{"Dodgson", "'"}]}], "s_method"}]}], " ", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"permprefs", "[", 
+   RowBox[{"prefs_", ",", "perm_"}], "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", "extperm", "}"}], ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"extperm", " ", "=", " ", 
+      RowBox[{"Join", "[", 
+       RowBox[{
+        RowBox[{
+         RowBox[{
+          RowBox[{"{", 
+           RowBox[{"True", ",", "#"}], "}"}], "&"}], " ", "/@", " ", 
+         "prefs"}], ",", 
+        RowBox[{"ConstantArray", "[", 
+         RowBox[{
+          RowBox[{"{", "False", "}"}], ",", 
+          RowBox[{
+           RowBox[{"Length", "[", "perm", "]"}], "-", 
+           RowBox[{"Length", "[", "prefs", "]"}]}]}], "]"}]}], "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{
+      RowBox[{
+       RowBox[{"#", "[", 
+        RowBox[{"[", "2", "]"}], "]"}], "&"}], " ", "/@", " ", 
+      RowBox[{"Select", "[", 
+       RowBox[{
+        RowBox[{"extperm", "[", 
+         RowBox[{"[", "perm", "]"}], "]"}], ",", 
+        RowBox[{
+         RowBox[{"#", "[", 
+          RowBox[{"[", "1", "]"}], "]"}], "&"}]}], "]"}]}]}]}], 
+   "\[IndentingNewLine]", "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"DodgsonForPermute", "[", 
+   RowBox[{"ballots_", ",", "perm_", ",", "data_"}], "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"newballots", ",", "wix", ",", "newdata", ",", "permdist"}], 
+     "}"}], ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"newballots", " ", "=", " ", 
+      RowBox[{
+       RowBox[{
+        RowBox[{"{", 
+         RowBox[{
+          RowBox[{"#", "[", 
+           RowBox[{"[", "1", "]"}], "]"}], ",", 
+          RowBox[{"permprefs", "[", 
+           RowBox[{
+            RowBox[{"#", "[", 
+             RowBox[{"[", "2", "]"}], "]"}], ",", "perm"}], "]"}]}], "}"}], 
+        "&"}], " ", "/@", " ", "ballots"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"wix", " ", "=", " ", 
+      RowBox[{"CondorcetWinnerIndex", "[", 
+       RowBox[{"CondorcetMatrix", "[", "newballots", "]"}], "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"newdata", " ", "=", " ", "data"}], ";", "\[IndentingNewLine]", 
+     RowBox[{"If", "[", 
+      RowBox[{
+       RowBox[{"wix", " ", "=!=", " ", "Null"}], ",", "\[IndentingNewLine]", 
+       RowBox[{
+        RowBox[{"permdist", " ", "=", " ", 
+         RowBox[{
+          RowBox[{"Length", "[", "perm", "]"}], " ", "-", " ", 
+          RowBox[{"Length", "[", 
+           RowBox[{"permcycles", "[", "perm", "]"}], "]"}]}]}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"If", "[", 
+         RowBox[{
+          RowBox[{"permdist", " ", "<", " ", 
+           RowBox[{"newdata", "[", 
+            RowBox[{"[", "wix", "]"}], "]"}]}], ",", " ", 
+          RowBox[{
+           RowBox[{"newdata", "[", 
+            RowBox[{"[", "wix", "]"}], "]"}], " ", "=", " ", "permdist"}]}], 
+         "]"}]}]}], "\[IndentingNewLine]", "]"}], ";", "\[IndentingNewLine]", 
+     "newdata"}]}], "\[IndentingNewLine]", "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"Dodgson", "[", "ballots_", "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"cands", ",", "n", ",", "data"}], "}"}], ",", 
+    "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"cands", " ", "=", " ", 
+      RowBox[{"GetCandidates", "[", "ballots", "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"n", " ", "=", " ", 
+      RowBox[{"Length", "[", "cands", "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"data", " ", "=", 
+      RowBox[{"ConstantArray", "[", 
+       RowBox[{"n", ",", 
+        RowBox[{"{", "n", "}"}]}], "]"}]}], ";", " ", 
+     RowBox[{"(*", " ", 
+      RowBox[{
+      "The", " ", "value", " ", "for", " ", "no", " ", "Condorcet", " ", 
+       "winner"}], " ", "*)"}], "\[IndentingNewLine]", 
+     RowBox[{"data", "=", "  ", 
+      RowBox[{"ApplyPermutations", "[", 
+       RowBox[{"n", ",", 
+        RowBox[{
+         RowBox[{"DodgsonForPermute", "[", 
+          RowBox[{"ballots", ",", "#1", ",", "#2"}], "]"}], "&"}], ",", 
+        "data"}], "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"SortBy", "[", 
+      RowBox[{
+       RowBox[{"Transpose", "[", 
+        RowBox[{"{", 
+         RowBox[{"cands", ",", "data"}], "}"}], "]"}], ",", 
+       RowBox[{
+        RowBox[{"{", 
+         RowBox[{
+          RowBox[{"#", "[", 
+           RowBox[{"[", "2", "]"}], "]"}], ",", 
+          RowBox[{"#", "[", 
+           RowBox[{"[", "1", "]"}], "]"}]}], "}"}], "&"}]}], "]"}]}]}], 
+   "\[IndentingNewLine]", "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+   RowBox[{
+    RowBox[{"Tideman", "'"}], "s", " ", 
+    RowBox[{"method", ":", " ", "http", ":"}]}], "//", 
+   RowBox[{
+    RowBox[{
+     RowBox[{
+      RowBox[{
+       RowBox[{"en", ".", "wikipedia", ".", "org"}], "/", "wiki"}], "/", 
+      "Ranked_pairs"}], "\n", "Uses", " ", 
+     RowBox[{"Mma", "'"}], "s", " ", "graph"}], "-", 
+    RowBox[{"theory", " ", "algorithms"}]}]}], " ", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"RankedPairsPrefOrder", "[", "prefmat_", "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{
+     "n", ",", "k1", ",", "k2", ",", "beatmargins", ",", "beatlist", ",", 
+      "bmg", ",", "bd", ",", "blext", ",", "blxgraf"}], "}"}], ",", 
+    "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"n", " ", "=", " ", 
+      RowBox[{"Length", "[", "prefmat", "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"(*", " ", 
+      RowBox[{
+      "Find", " ", "the", " ", "beat", " ", "margins", " ", "and", " ", 
+       "sort", " ", "them"}], " ", "*)"}], "\[IndentingNewLine]", 
+     RowBox[{"beatmargins", " ", "=", " ", 
+      RowBox[{"Flatten", "[", 
+       RowBox[{
+        RowBox[{"Table", "[", 
+         RowBox[{
+          RowBox[{"{", 
+           RowBox[{"k1", ",", "k2", ",", 
+            RowBox[{"prefmat", "[", 
+             RowBox[{"[", 
+              RowBox[{"k1", ",", "k2"}], "]"}], "]"}], ",", 
+            RowBox[{"prefmat", "[", 
+             RowBox[{"[", 
+              RowBox[{"k2", ",", "k1"}], "]"}], "]"}]}], "}"}], ",", 
+          RowBox[{"{", 
+           RowBox[{"k1", ",", "n"}], "}"}], ",", 
+          RowBox[{"{", 
+           RowBox[{"k2", ",", "n"}], "}"}]}], "]"}], ",", "1"}], "]"}]}], ";",
+      "\[IndentingNewLine]", 
+     RowBox[{"beatmargins", " ", "=", " ", 
+      RowBox[{"SortBy", "[", 
+       RowBox[{
+        RowBox[{"Select", "[", 
+         RowBox[{"beatmargins", ",", 
+          RowBox[{
+           RowBox[{
+            RowBox[{"#", "[", 
+             RowBox[{"[", "1", "]"}], "]"}], "\[NotEqual]", 
+            RowBox[{"#", "[", 
+             RowBox[{"[", "2", "]"}], "]"}]}], "&"}]}], "]"}], ",", 
+        RowBox[{
+         RowBox[{"{", 
+          RowBox[{
+           RowBox[{"-", 
+            RowBox[{"#", "[", 
+             RowBox[{"[", "3", "]"}], "]"}]}], ",", 
+           RowBox[{"#", "[", 
+            RowBox[{"[", "4", "]"}], "]"}]}], "}"}], "&"}]}], "]"}]}], ";", 
+     "\[IndentingNewLine]", "\[IndentingNewLine]", 
+     RowBox[{"(*", " ", 
+      RowBox[{
+      "Find", " ", "the", " ", "beat", " ", "list", " ", "of", " ", "what", 
+       " ", "beats", " ", "what"}], " ", "*)"}], "\[IndentingNewLine]", 
+     RowBox[{"beatlist", " ", "=", " ", 
+      RowBox[{"{", "}"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"Do", "[", "\[IndentingNewLine]", 
+      RowBox[{"(*", " ", 
+       RowBox[{"Get", " ", "a", " ", "pair", " ", "of", " ", 
+        RowBox[{"{", 
+         RowBox[{
+          RowBox[{"start", " ", "index"}], ",", " ", 
+          RowBox[{"end", " ", "index"}]}], "}"}]}], " ", "*)"}], 
+      "\[IndentingNewLine]", 
+      RowBox[{
+       RowBox[{
+        RowBox[{"bd", " ", "=", " ", 
+         RowBox[{"bmg", "[", 
+          RowBox[{"[", 
+           RowBox[{";;", "2"}], "]"}], "]"}]}], ";", "\[IndentingNewLine]", 
+        "\[IndentingNewLine]", 
+        RowBox[{"(*", " ", 
+         RowBox[{"The", " ", "simplest", " ", "test", " ", "for", " ", 
+          RowBox[{"cycles", " ", "--"}], " ", "reverse", " ", "direction"}], 
+         " ", "*)"}], "\[IndentingNewLine]", 
+        RowBox[{"If", "[", 
+         RowBox[{
+          RowBox[{"MemberQ", "[", 
+           RowBox[{"beatlist", ",", 
+            RowBox[{"Reverse", "[", "bd", "]"}]}], "]"}], ",", 
+          RowBox[{"Continue", "[", "]"}]}], "]"}], ";", "\[IndentingNewLine]",
+         "\[IndentingNewLine]", 
+        RowBox[{"(*", " ", 
+         RowBox[{
+          RowBox[{"Test", " ", "for", " ", "lack", " ", "of", " ", 
+           RowBox[{"cyclicity", ".", " ", "First"}]}], ",", " ", 
+          RowBox[{
+          "test", " ", "reversing", " ", "the", " ", "direction", " ", "of", 
+           " ", "the", " ", "addition"}], ",", " ", "then", ",", " ", 
+          RowBox[{
+           RowBox[{"test", " ", "using", " ", "a", " ", "graph"}], "-", 
+           RowBox[{"theory", " ", "algorithm"}]}]}], "*)"}], 
+        "\[IndentingNewLine]", 
+        RowBox[{"If", "[", 
+         RowBox[{
+          RowBox[{"MemberQ", "[", 
+           RowBox[{"beatlist", ",", 
+            RowBox[{"Reverse", "[", "bd", "]"}]}], "]"}], ",", 
+          RowBox[{"Continue", "[", "]"}]}], "]"}], ";", "\[IndentingNewLine]", 
+        RowBox[{"blext", " ", "=", " ", 
+         RowBox[{"Append", "[", 
+          RowBox[{"beatlist", ",", "bd"}], "]"}]}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"If", "[", 
+         RowBox[{
+          RowBox[{"IsAcyclic", "[", "blext", "]"}], ",", " ", 
+          RowBox[{"beatlist", " ", "=", " ", "blext"}]}], "]"}]}], ",", 
+       "\[IndentingNewLine]", 
+       RowBox[{"{", 
+        RowBox[{"bmg", ",", "beatmargins"}], "}"}]}], "]"}], ";", 
+     "\[IndentingNewLine]", "\[IndentingNewLine]", 
+     RowBox[{"Sort", "[", 
+      RowBox[{
+       RowBox[{"Range", "[", "n", "]"}], ",", 
+       RowBox[{
+        RowBox[{"MemberQ", "[", 
+         RowBox[{"beatlist", ",", 
+          RowBox[{"{", 
+           RowBox[{"#1", ",", "#2"}], "}"}]}], "]"}], "&"}]}], "]"}]}]}], 
+   "\[IndentingNewLine]", "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"RankedPairs", "[", "ballots_", "]"}], " ", ":=", " ", 
+  RowBox[{"CondorcetPrefOrder", "[", 
+   RowBox[{"ballots", ",", "RankedPairsPrefOrder"}], "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+   RowBox[{
+    RowBox[{
+     RowBox[{"Maximal", " ", 
+      RowBox[{"lotteries", ":", " ", "https", ":"}]}], "//", 
+     RowBox[{
+      RowBox[{
+       RowBox[{
+        RowBox[{"en", ".", "wikipedia", ".", "org"}], "/", "wiki"}], "/", 
+       "Maximal_lotteries"}], "\n", "Consistent", " ", "Probabilistic", " ", 
+      "Social", " ", 
+      RowBox[{"Choice", ":", " ", "https", ":"}]}]}], "//", 
+    RowBox[{
+     RowBox[{
+      RowBox[{
+       RowBox[{"arxiv", ".", "org"}], "/", "abs"}], "/", "1503.00694"}], 
+     "\[IndentingNewLine]", 
+     RowBox[{"http", ":"}]}]}], "//", 
+   RowBox[{
+    RowBox[{
+     RowBox[{
+      RowBox[{"econweb", ".", "ucsd", ".", "edu"}], "/", 
+      RowBox[{"~", "jsobel"}]}], "/", "172"}], 
+    RowBox[{"aw02", "/", 
+     RowBox[{"notes9", ".", "pdf"}]}]}]}], " ", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"MaximalLotteriesProbs", "[", "prefmat_", "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"n", ",", "c1", ",", "c2", ",", "c3"}], "}"}], ",", 
+    "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"n", " ", "=", " ", 
+      RowBox[{"Length", "[", "prefmat", "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"If", "[", 
+      RowBox[{
+       RowBox[{"n", " ", "\[Equal]", " ", "0"}], ",", 
+       RowBox[{"Return", "[", 
+        RowBox[{"{", "}"}], "]"}]}], "]"}], ";", "\[IndentingNewLine]", 
+     RowBox[{"c1", " ", "=", " ", 
+      RowBox[{"Join", "[", 
+       RowBox[{
+        RowBox[{"ConstantArray", "[", 
+         RowBox[{"0", ",", "n"}], "]"}], ",", 
+        RowBox[{"{", 
+         RowBox[{"-", "1"}], "}"}]}], "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"c2", " ", "=", " ", 
+      RowBox[{"ArrayFlatten", "[", 
+       RowBox[{"{", 
+        RowBox[{
+         RowBox[{"{", 
+          RowBox[{
+           RowBox[{"{", 
+            RowBox[{"ConstantArray", "[", 
+             RowBox[{"1", ",", "n"}], "]"}], "}"}], ",", 
+           RowBox[{"{", 
+            RowBox[{"{", "0", "}"}], "}"}]}], "}"}], ",", 
+         RowBox[{"{", 
+          RowBox[{
+           RowBox[{
+            RowBox[{"Transpose", "[", "prefmat", "]"}], " ", "-", " ", 
+            "prefmat"}], ",", 
+           RowBox[{"ConstantArray", "[", 
+            RowBox[{
+             RowBox[{"{", 
+              RowBox[{"-", "1"}], "}"}], ",", "n"}], "]"}]}], "}"}]}], "}"}], 
+       "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"c3", " ", "=", " ", 
+      RowBox[{"Join", "[", 
+       RowBox[{
+        RowBox[{"{", 
+         RowBox[{"{", 
+          RowBox[{"1", ",", "0"}], "}"}], "}"}], ",", 
+        RowBox[{"ConstantArray", "[", 
+         RowBox[{
+          RowBox[{"{", 
+           RowBox[{"0", ",", "1"}], "}"}], ",", "n"}], "]"}]}], "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"Drop", "[", 
+      RowBox[{
+       RowBox[{"LinearProgramming", "[", 
+        RowBox[{"c1", ",", "c2", ",", "c3"}], "]"}], ",", 
+       RowBox[{"-", "1"}]}], "]"}]}]}], "\[IndentingNewLine]", 
+   "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"MaximalLotteries", "[", "ballots_", "]"}], " ", ":=", " ", 
+  RowBox[{"CondorcetPrefCount", "[", 
+   RowBox[{"ballots", ",", "MaximalLotteriesProbs"}], "]"}]}]], "Input"]
+}, Closed]],
+
+Cell[CellGroupData[{
+
+Cell["Maximal Sets", "Subsection"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+   RowBox[{
+   "Find", " ", "the", " ", "Smith", " ", "and", " ", "Schwartz", " ", 
+    "sets"}], ",", " ", 
+   RowBox[{
+    RowBox[{"from", " ", 
+     RowBox[{"http", ":"}]}], "//", 
+    RowBox[{
+     RowBox[{
+      RowBox[{
+       RowBox[{"wiki", ".", "electorama", ".", "com"}], "/", "wiki"}], "/", 
+      "Maximal_elements"}], "_algorithms", "\[IndentingNewLine]", "Type", " ",
+      "is", " ", "\"\<Schwartz\>\"", " ", 
+     RowBox[{"(", ">", ")"}], " ", "or", " ", "\"\<Smith\>\"", " ", 
+     RowBox[{"(", "\[GreaterEqual]", ")"}]}]}]}], " ", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"PrefMatRelations", "[", 
+   RowBox[{"prefmat_", ",", " ", "type_"}], "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"n", ",", "k1", ",", "k2"}], "}"}], ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"n", " ", "=", " ", 
+      RowBox[{"Length", "[", "prefmat", "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"Table", "[", 
+      RowBox[{
+       RowBox[{"If", "[", 
+        RowBox[{
+         RowBox[{"k2", " ", "\[NotEqual]", " ", "k1"}], ",", 
+         "\[IndentingNewLine]", 
+         RowBox[{"Switch", "[", 
+          RowBox[{"type", ",", "\[IndentingNewLine]", "\"\<Schwartz\>\"", ",", 
+           RowBox[{
+            RowBox[{"prefmat", "[", 
+             RowBox[{"[", 
+              RowBox[{"k1", ",", "k2"}], "]"}], "]"}], ">", " ", 
+            RowBox[{"prefmat", "[", 
+             RowBox[{"[", 
+              RowBox[{"k2", ",", "k1"}], "]"}], "]"}]}], ",", 
+           "\[IndentingNewLine]", "\"\<Smith\>\"", ",", 
+           RowBox[{
+            RowBox[{"prefmat", "[", 
+             RowBox[{"[", 
+              RowBox[{"k1", ",", "k2"}], "]"}], "]"}], " ", "\[GreaterEqual]",
+             " ", 
+            RowBox[{"prefmat", "[", 
+             RowBox[{"[", 
+              RowBox[{"k2", ",", "k1"}], "]"}], "]"}]}]}], 
+          "\[IndentingNewLine]", "]"}], ",", "\[IndentingNewLine]", "False"}],
+         "]"}], ",", "\[IndentingNewLine]", 
+       RowBox[{"{", 
+        RowBox[{"k1", ",", "n"}], "}"}], ",", 
+       RowBox[{"{", 
+        RowBox[{"k2", ",", "n"}], "}"}]}], "]"}]}]}], "\[IndentingNewLine]", 
+   "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"FloydWarshallMaximal", "[", "relations_", "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{
+     "n", ",", "k1", ",", "k2", ",", "k", ",", "InMaximal", ",", "HasPath"}], 
+     "}"}], ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"n", " ", "=", " ", 
+      RowBox[{"Length", "[", "relations", "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"InMaximal", " ", "=", " ", 
+      RowBox[{"ConstantArray", "[", 
+       RowBox[{"True", ",", "n"}], "]"}]}], ";", "\[IndentingNewLine]", 
+     "\[IndentingNewLine]", 
+     RowBox[{"(*", " ", 
+      RowBox[{
+      "Init", " ", "HasPath", " ", "for", " ", "relations", " ", "with", " ", 
+       "length", " ", "1"}], " ", "*)"}], "\[IndentingNewLine]", 
+     RowBox[{"HasPath", " ", "=", " ", 
+      RowBox[{"Table", "[", 
+       RowBox[{
+        RowBox[{"If", "[", 
+         RowBox[{
+          RowBox[{"k2", "\[NotEqual]", "k1"}], ",", 
+          RowBox[{"relations", "[", 
+           RowBox[{"[", 
+            RowBox[{"k1", ",", "k2"}], "]"}], "]"}], ",", "False"}], "]"}], 
+        ",", 
+        RowBox[{"{", 
+         RowBox[{"k1", ",", "n"}], "}"}], ",", 
+        RowBox[{"{", 
+         RowBox[{"k2", ",", "n"}], "}"}]}], "]"}]}], ";", 
+     "\[IndentingNewLine]", "\[IndentingNewLine]", 
+     RowBox[{"(*", " ", 
+      RowBox[{
+      "Consider", " ", "paths", " ", "with", " ", "intermediate", " ", 
+       "nodes", " ", "from", " ", "1", " ", "to", " ", "k"}], " ", "*)"}], 
+     "\[IndentingNewLine]", 
+     RowBox[{"Do", "[", 
+      RowBox[{
+       RowBox[{"If", "[", 
+        RowBox[{
+         RowBox[{
+          RowBox[{"k1", " ", "\[NotEqual]", " ", "k"}], " ", "&&", " ", 
+          RowBox[{"k2", " ", "\[NotEqual]", " ", "k"}], " ", "&&", " ", 
+          RowBox[{"k2", " ", "\[NotEqual]", " ", "k1"}]}], ",", 
+         "\[IndentingNewLine]", 
+         RowBox[{"If", "[", 
+          RowBox[{
+           RowBox[{
+            RowBox[{"HasPath", "[", 
+             RowBox[{"[", 
+              RowBox[{"k1", ",", "k"}], "]"}], "]"}], " ", "&&", " ", 
+            RowBox[{"HasPath", "[", 
+             RowBox[{"[", 
+              RowBox[{"k", ",", "k2"}], "]"}], "]"}]}], ",", 
+           RowBox[{
+            RowBox[{"HasPath", "[", 
+             RowBox[{"[", 
+              RowBox[{"k1", ",", "k2"}], "]"}], "]"}], " ", "=", " ", 
+            "True"}]}], "]"}]}], "\[IndentingNewLine]", "]"}], ",", 
+       "\[IndentingNewLine]", 
+       RowBox[{"{", 
+        RowBox[{"k", ",", "n"}], "}"}], ",", 
+       RowBox[{"{", 
+        RowBox[{"k1", ",", "n"}], "}"}], ",", 
+       RowBox[{"{", 
+        RowBox[{"k2", ",", "n"}], "}"}]}], "]"}], ";", "\[IndentingNewLine]", 
+     "\[IndentingNewLine]", 
+     RowBox[{"(*", " ", 
+      RowBox[{
+       RowBox[{
+       "Candidates", " ", "with", " ", "paths", " ", "to", " ", "them", " ", 
+        "but", " ", "none", " ", "to", " ", "complete", " ", "a", " ", 
+        "cycle"}], ",", " ", 
+       RowBox[{
+       "they", " ", "are", " ", "not", " ", "in", " ", "the", " ", "maximal", 
+        " ", "set"}]}], " ", "*)"}], "\[IndentingNewLine]", 
+     RowBox[{"Do", "[", 
+      RowBox[{
+       RowBox[{"If", "[", 
+        RowBox[{
+         RowBox[{"k2", " ", "\[NotEqual]", " ", "k1"}], ",", 
+         "\[IndentingNewLine]", 
+         RowBox[{"If", "[", 
+          RowBox[{
+           RowBox[{
+            RowBox[{"HasPath", "[", 
+             RowBox[{"[", 
+              RowBox[{"k2", ",", "k1"}], "]"}], "]"}], " ", "&&", " ", 
+            RowBox[{"(", 
+             RowBox[{"!", 
+              RowBox[{"HasPath", "[", 
+               RowBox[{"[", 
+                RowBox[{"k1", ",", "k2"}], "]"}], "]"}]}], ")"}]}], ",", 
+           "\[IndentingNewLine]", 
+           RowBox[{
+            RowBox[{"InMaximal", "[", 
+             RowBox[{"[", "k1", "]"}], "]"}], " ", "=", " ", "False"}]}], 
+          "]"}]}], "\[IndentingNewLine]", "]"}], ",", 
+       RowBox[{"{", 
+        RowBox[{"k1", ",", "n"}], "}"}], ",", 
+       RowBox[{"{", 
+        RowBox[{"k2", ",", "n"}], "}"}]}], "]"}], ";", "\[IndentingNewLine]", 
+     "\[IndentingNewLine]", "InMaximal"}]}], "\[IndentingNewLine]", 
+   "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"MaximalSet", "[", 
+   RowBox[{"ballots_", ",", "type_"}], "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"cands", ",", "prefmat", ",", "rels", ",", "inmax"}], "}"}], ",",
+     "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"cands", " ", "=", " ", 
+      RowBox[{"GetCandidates", "[", "ballots", "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"prefmat", " ", "=", " ", 
+      RowBox[{"CondorcetMatrix", "[", "ballots", "]"}]}], ";", 
+     "\[IndentingNewLine]", "\[IndentingNewLine]", 
+     RowBox[{"rels", " ", "=", " ", 
+      RowBox[{"PrefMatRelations", "[", 
+       RowBox[{"prefmat", ",", " ", "type"}], "]"}]}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"inmax", " ", "=", " ", 
+      RowBox[{"FloydWarshallMaximal", "[", "rels", "]"}]}], ";", 
+     "\[IndentingNewLine]", "\[IndentingNewLine]", 
+     RowBox[{"Pick", "[", 
+      RowBox[{"cands", ",", "inmax"}], "]"}]}]}], "\[IndentingNewLine]", 
+   "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"MaximalSetSequence", "[", 
+   RowBox[{"ballots_", ",", "type_"}], "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"newballots", ",", "maxsets", ",", "maxset"}], "}"}], ",", 
+    "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"newballots", " ", "=", " ", "ballots"}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{"maxsets", " ", "=", " ", 
+      RowBox[{"{", "}"}]}], ";", "\[IndentingNewLine]", "\[IndentingNewLine]", 
+     RowBox[{"While", "[", 
+      RowBox[{"True", ",", "\[IndentingNewLine]", 
+       RowBox[{
+        RowBox[{"maxset", " ", "=", " ", 
+         RowBox[{"MaximalSet", "[", 
+          RowBox[{"newballots", ",", "type"}], "]"}]}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"If", "[", 
+         RowBox[{
+          RowBox[{
+           RowBox[{"Length", "[", "maxset", "]"}], " ", "\[Equal]", " ", 
+           "0"}], ",", 
+          RowBox[{"Break", "[", "]"}]}], "]"}], ";", "\[IndentingNewLine]", 
+        RowBox[{"AppendTo", "[", 
+         RowBox[{"maxsets", ",", "maxset"}], "]"}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"newballots", " ", "=", " ", 
+         RowBox[{"RemoveCandidates", "[", 
+          RowBox[{"newballots", ",", "maxset"}], "]"}]}]}]}], 
+      "\[IndentingNewLine]", "]"}], ";", "\[IndentingNewLine]", 
+     "\[IndentingNewLine]", "maxsets"}]}], "\[IndentingNewLine]", 
+   "]"}]}]], "Input"]
+}, Closed]],
+
+Cell[CellGroupData[{
+
+Cell["Alternate Algorithms", "Subsection"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+   RowBox[{
+   "My", " ", "original", " ", "version", " ", "of", " ", "permcycles"}], ",",
+    " ", 
+   RowBox[{
+   "for", " ", "finding", " ", "the", " ", "cycles", " ", "of", " ", "a", " ",
+     "permutation"}]}], " ", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"permcyclesorig", "[", "perm_", "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"n", ",", "i", ",", "avail", ",", 
+      RowBox[{"cycles", " ", "=", " ", 
+       RowBox[{"{", "}"}]}], ",", "cycle", ",", "cyclebegin", ",", 
+      "nextindex"}], "}"}], ",", "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"n", " ", "=", " ", 
+      RowBox[{"Length", "[", "perm", "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"avail", " ", "=", " ", 
+      RowBox[{"ConstantArray", "[", 
+       RowBox[{"True", ",", "n"}], "]"}]}], ";", "\[IndentingNewLine]", 
+     RowBox[{"Do", "[", "\[IndentingNewLine]", 
+      RowBox[{
+       RowBox[{
+        RowBox[{"If", "[", 
+         RowBox[{
+          RowBox[{"!", 
+           RowBox[{"avail", "[", 
+            RowBox[{"[", "i", "]"}], "]"}]}], ",", 
+          RowBox[{"Continue", "[", "]"}]}], "]"}], ";", "\[IndentingNewLine]", 
+        RowBox[{"(*", " ", 
+         RowBox[{"Start", " ", "a", " ", "cycle"}], " ", "*)"}], 
+        "\[IndentingNewLine]", 
+        RowBox[{"cyclebegin", " ", "=", " ", "i"}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"cycle", " ", "=", " ", 
+         RowBox[{"{", "cyclebegin", "}"}]}], ";", "\[IndentingNewLine]", 
+        RowBox[{
+         RowBox[{"avail", "[", 
+          RowBox[{"[", "cyclebegin", "]"}], "]"}], " ", "=", " ", "False"}], 
+        ";", "\[IndentingNewLine]", 
+        RowBox[{"nextindex", " ", "=", " ", "i"}], ";", "\[IndentingNewLine]", 
+        RowBox[{"(*", " ", 
+         RowBox[{
+          RowBox[{
+          "Find", " ", "the", " ", "next", " ", "element", " ", "of", " ", 
+           "a", " ", "cycle"}], ",", " ", 
+          RowBox[{
+          "until", " ", "one", " ", "comes", " ", "to", " ", "the", " ", 
+           "first", " ", "element"}]}], " ", "*)"}], "\[IndentingNewLine]", 
+        RowBox[{"While", "[", 
+         RowBox[{"True", ",", "\[IndentingNewLine]", 
+          RowBox[{
+           RowBox[{"nextindex", " ", "=", " ", 
+            RowBox[{"perm", "[", 
+             RowBox[{"[", "nextindex", "]"}], "]"}]}], ";", 
+           "\[IndentingNewLine]", 
+           RowBox[{"If", "[", 
+            RowBox[{
+             RowBox[{"nextindex", " ", "\[Equal]", " ", "cyclebegin"}], ",", 
+             RowBox[{"Break", "[", "]"}]}], "]"}], ";", "\[IndentingNewLine]", 
+           RowBox[{"AppendTo", "[", 
+            RowBox[{"cycle", ",", "nextindex"}], "]"}], ";", 
+           "\[IndentingNewLine]", 
+           RowBox[{
+            RowBox[{"avail", "[", 
+             RowBox[{"[", "nextindex", "]"}], "]"}], " ", "=", " ", 
+            "False"}]}]}], "\[IndentingNewLine]", "]"}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"(*", " ", 
+         RowBox[{"Cycle", " ", "complete"}], " ", "*)"}], 
+        "\[IndentingNewLine]", 
+        RowBox[{"AppendTo", "[", 
+         RowBox[{"cycles", ",", "cycle"}], "]"}]}], ",", 
+       "\[IndentingNewLine]", 
+       RowBox[{"{", 
+        RowBox[{"i", ",", "n"}], "}"}]}], "]"}], ";", "\[IndentingNewLine]", 
+     "cycles"}]}], "\[IndentingNewLine]", "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+   RowBox[{
+   "My", " ", "original", " ", "version", " ", "of", " ", "the", " ", 
+    "cyclicity", " ", 
+    RowBox[{"tester", ":", " ", 
+     RowBox[{
+     "it", " ", "uses", " ", "the", " ", "cyclicity", " ", "test", " ", "in", 
+      " ", "http"}], ":"}]}], "//", 
+   RowBox[{
+    RowBox[{
+     RowBox[{
+      RowBox[{
+       RowBox[{
+        RowBox[{
+         RowBox[{
+          RowBox[{"www", ".", "cs", ".", "hmc", ".", "edu"}], "/", 
+          RowBox[{"~", "keller"}]}], "/", "courses"}], "/", "cs60"}], "/", 
+       "s98"}], "/", "examples"}], "/", "acyclic"}], "/"}]}], " ", 
+  "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"IsAcyclicOrig", "[", "blext_", "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{
+     "blxtnew", ",", "indices", ",", "ix", ",", "numleft", ",", "numright", 
+      ",", " ", "bdx", ",", " ", "rmleft", ",", " ", "rmright"}], "}"}], ",", 
+    "\[IndentingNewLine]", 
+    RowBox[{"(*", " ", 
+     RowBox[{"What", " ", "indices", " ", "are", " ", 
+      RowBox[{"present", "?"}]}], " ", "*)"}], "\[IndentingNewLine]", 
+    RowBox[{
+     RowBox[{"indices", " ", "=", " ", 
+      RowBox[{"Union", "[", 
+       RowBox[{"Flatten", "[", "blext", "]"}], "]"}]}], ";", 
+     "\[IndentingNewLine]", "\[IndentingNewLine]", 
+     RowBox[{"(*", " ", 
+      RowBox[{"Nontrivial", " ", 
+       RowBox[{"test", " ", "--"}], " ", "remove", " ", "all", " ", "the", 
+       " ", "nodes", " ", "that", " ", "are", " ", "only", " ", "on", " ", 
+       "left", " ", "sides", " ", "or", " ", "on", " ", "right", " ", 
+       RowBox[{"sides", ".", " ", "Repeat"}], " ", "until", " ", "it", " ", 
+       "is", " ", "no", " ", "longer", " ", "possible", " ", "to", " ", 
+       "remove", " ", "any", " ", 
+       RowBox[{"more", ".", " ", "Are"}], " ", "any", " ", 
+       RowBox[{"left", "?"}]}], " ", "*)"}], "\[IndentingNewLine]", 
+     RowBox[{"blxtnew", " ", "=", " ", "blext"}], ";", "\[IndentingNewLine]", 
+     
+     RowBox[{"While", "[", 
+      RowBox[{"True", ",", "\[IndentingNewLine]", 
+       RowBox[{"(*", " ", 
+        RowBox[{
+        "What", " ", "is", " ", "present", " ", "on", " ", "each", " ", 
+         RowBox[{"side", "?"}]}], " ", "*)"}], "\[IndentingNewLine]", 
+       RowBox[{
+        RowBox[{"Do", "[", 
+         RowBox[{
+          RowBox[{
+           RowBox[{
+            RowBox[{"numleft", "[", "ix", "]"}], " ", "=", " ", "0"}], ";", 
+           " ", 
+           RowBox[{
+            RowBox[{"numright", "[", "ix", "]"}], " ", "=", " ", "0"}]}], ",",
+           " ", 
+          RowBox[{"{", 
+           RowBox[{"ix", ",", "indices"}], "}"}]}], "]"}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"Do", "[", 
+         RowBox[{
+          RowBox[{
+           RowBox[{
+            RowBox[{"numleft", "[", 
+             RowBox[{"bdx", "[", 
+              RowBox[{"[", "1", "]"}], "]"}], "]"}], "++"}], ";", " ", 
+           RowBox[{
+            RowBox[{"numright", "[", 
+             RowBox[{"bdx", "[", 
+              RowBox[{"[", "2", "]"}], "]"}], "]"}], "++"}]}], ",", " ", 
+          RowBox[{"{", 
+           RowBox[{"bdx", ",", "blxtnew"}], "}"}]}], "]"}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"(*", " ", 
+         RowBox[{
+         "What", " ", "is", " ", "present", " ", "on", " ", "only", " ", 
+          "one", " ", 
+          RowBox[{"side", "?"}]}], " ", "*)"}], "\[IndentingNewLine]", 
+        RowBox[{"rmleft", " ", "=", " ", 
+         RowBox[{"{", "}"}]}], ";", " ", 
+        RowBox[{"rmright", " ", "=", " ", 
+         RowBox[{"{", "}"}]}], ";", "\[IndentingNewLine]", 
+        RowBox[{"Do", "[", "\[IndentingNewLine]", 
+         RowBox[{
+          RowBox[{
+           RowBox[{"If", "[", 
+            RowBox[{
+             RowBox[{
+              RowBox[{
+               RowBox[{"numleft", "[", "ix", "]"}], ">", "0"}], " ", "&&", 
+              " ", 
+              RowBox[{
+               RowBox[{"numright", "[", "ix", "]"}], "\[Equal]", "0"}]}], ",",
+              " ", 
+             RowBox[{"AppendTo", "[", 
+              RowBox[{"rmleft", ",", "ix"}], "]"}]}], "]"}], ";", 
+           "\[IndentingNewLine]", 
+           RowBox[{"If", "[", 
+            RowBox[{
+             RowBox[{
+              RowBox[{
+               RowBox[{"numleft", "[", "ix", "]"}], "\[Equal]", "0"}], " ", "&&",
+               " ", 
+              RowBox[{
+               RowBox[{"numright", "[", "ix", "]"}], ">", "0"}]}], ",", " ", 
+             RowBox[{"AppendTo", "[", 
+              RowBox[{"rmright", ",", "ix"}], "]"}]}], "]"}]}], ",", 
+          "\[IndentingNewLine]", 
+          RowBox[{"{", 
+           RowBox[{"ix", ",", "indices"}], "}"}]}], "]"}], ";", 
+        "\[IndentingNewLine]", 
+        RowBox[{"(*", " ", 
+         RowBox[{"Can", " ", "one", " ", "go", " ", "any", " ", 
+          RowBox[{"further", "?"}]}], " ", "*)"}], "\[IndentingNewLine]", 
+        RowBox[{"If", "[", 
+         RowBox[{
+          RowBox[{
+           RowBox[{
+            RowBox[{"Length", "[", "rmleft", "]"}], " ", "+", " ", 
+            RowBox[{"Length", "[", "rmright", "]"}]}], " ", "\[Equal]", " ", 
+           "0"}], ",", 
+          RowBox[{"Break", "[", "]"}]}], "]"}], ";", "\[IndentingNewLine]", 
+        "\[IndentingNewLine]", 
+        RowBox[{"(*", " ", 
+         RowBox[{"Remove", "!"}], " ", "*)"}], "\[IndentingNewLine]", 
+        RowBox[{"blxtnew", " ", "=", " ", 
+         RowBox[{"Select", "[", 
+          RowBox[{"blxtnew", ",", 
+           RowBox[{
+            RowBox[{
+             RowBox[{"(", 
+              RowBox[{"!", 
+               RowBox[{"MemberQ", "[", 
+                RowBox[{"rmleft", ",", 
+                 RowBox[{"#", "[", 
+                  RowBox[{"[", "1", "]"}], "]"}]}], "]"}]}], ")"}], " ", "&&",
+              " ", 
+             RowBox[{"(", 
+              RowBox[{"!", 
+               RowBox[{"MemberQ", "[", 
+                RowBox[{"rmright", ",", 
+                 RowBox[{"#", "[", 
+                  RowBox[{"[", "2", "]"}], "]"}]}], "]"}]}], ")"}]}], "&"}]}],
+           "]"}]}]}]}], "\[IndentingNewLine]", "]"}], ";", 
+     "\[IndentingNewLine]", 
+     RowBox[{
+      RowBox[{"Length", "[", "blxtnew", "]"}], " ", "\[Equal]", " ", 
+      "0"}]}]}], "\[IndentingNewLine]", "]"}]}]], "Input"]
+}, Closed]]
+}, Closed]],
+
+Cell[CellGroupData[{
+
+Cell["Examples", "Section"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{"Edge", " ", "cases"}], " ", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{
+   RowBox[{"SampleBallots", "[", "\"\<Zero\>\"", "]"}], " ", "=", " ", 
+   RowBox[{"{", "}"}]}], ";"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{
+   RowBox[{"SampleBallots", "[", "\"\<One\>\"", "]"}], " ", "=", " ", 
+   RowBox[{"{", 
+    RowBox[{"{", 
+     RowBox[{"1", ",", 
+      RowBox[{"{", "\"\<The Dear Leader\>\"", "}"}]}], "}"}], "}"}]}], 
+  ";"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{
+   RowBox[{"SampleBallots", "[", "\"\<Two\>\"", "]"}], " ", "=", " ", 
+   RowBox[{"{", 
+    RowBox[{
+     RowBox[{"{", 
+      RowBox[{"3", ",", 
+       RowBox[{"{", 
+        RowBox[{"\"\<T Dee\>\"", ",", "\"\<T Dum\>\""}], "}"}]}], "}"}], ",", 
+     
+     RowBox[{"{", 
+      RowBox[{"2", ",", 
+       RowBox[{"{", 
+        RowBox[{"\"\<T Dum\>\"", ",", "\"\<T Dee\>\""}], "}"}]}], "}"}]}], 
+    "}"}]}], ";"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+   RowBox[{
+    RowBox[{"The", " ", "beer", " ", "and", " ", "distilled"}], "-", 
+    RowBox[{"spirits", " ", "examples", " ", "are", " ", "from", " ", 
+     RowBox[{"http", ":"}]}]}], "//", 
+   RowBox[{
+    RowBox[{
+     RowBox[{
+      RowBox[{"web", ".", "math", ".", "princeton", ".", "edu"}], "/", 
+      "math_alive"}], "/", "Voting"}], "/", 
+    RowBox[{"Lab1", ".", "shtml"}]}]}], " ", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{
+   RowBox[{"SampleBallots", "[", "\"\<Beer\>\"", "]"}], " ", "=", " ", 
+   RowBox[{"MakeBallotsFromCandNums", "[", 
+    RowBox[{"{", 
+     RowBox[{
+      RowBox[{"{", 
+       RowBox[{
+       "\"\<Killians\>\"", ",", "\"\<Molson\>\"", ",", "\"\<Samuel Adams\>\"",
+         ",", "\"\<Guinness\>\"", ",", "\"\<Meister Brau\>\""}], "}"}], ",", 
+      RowBox[{"{", 
+       RowBox[{
+        RowBox[{"{", 
+         RowBox[{"18", ",", 
+          RowBox[{"{", 
+           RowBox[{"5", ",", "1", ",", "2", ",", "4", ",", "3"}], "}"}]}], 
+         "}"}], ",", 
+        RowBox[{"{", 
+         RowBox[{"12", ",", 
+          RowBox[{"{", 
+           RowBox[{"1", ",", "5", ",", "3", ",", "4", ",", "2"}], "}"}]}], 
+         "}"}], ",", 
+        RowBox[{"{", 
+         RowBox[{"10", ",", 
+          RowBox[{"{", 
+           RowBox[{"2", ",", "5", ",", "4", ",", "1", ",", "3"}], "}"}]}], 
+         "}"}], ",", 
+        RowBox[{"{", 
+         RowBox[{"9", ",", 
+          RowBox[{"{", 
+           RowBox[{"4", ",", "5", ",", "1", ",", "2", ",", "3"}], "}"}]}], 
+         "}"}], ",", 
+        RowBox[{"{", 
+         RowBox[{"4", ",", 
+          RowBox[{"{", 
+           RowBox[{"2", ",", "5", ",", "3", ",", "4", ",", "1"}], "}"}]}], 
+         "}"}], ",", 
+        RowBox[{"{", 
+         RowBox[{"2", ",", 
+          RowBox[{"{", 
+           RowBox[{"4", ",", "5", ",", "3", ",", "2", ",", "1"}], "}"}]}], 
+         "}"}]}], "}"}]}], "}"}], "]"}]}], ";"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{
+   RowBox[{"SampleBallots", "[", "\"\<Distilled\>\"", "]"}], " ", "=", " ", 
+   RowBox[{"MakeBallotsFromCandNums", "[", 
+    RowBox[{"{", 
+     RowBox[{
+      RowBox[{"{", 
+       RowBox[{
+       "\"\<Absolut\>\"", ",", "\"\<Jim Beam\>\"", ",", "\"\<Jose Cuervo\>\"",
+         ",", "\"\<Jack Daniels\>\"", ",", "\"\<So. Comfort\>\""}], "}"}], 
+      ",", 
+      RowBox[{"{", 
+       RowBox[{
+        RowBox[{"{", 
+         RowBox[{"5", ",", 
+          RowBox[{"{", 
+           RowBox[{"1", ",", "2", ",", "3", ",", "4", ",", "5"}], "}"}]}], 
+         "}"}], ",", 
+        RowBox[{"{", 
+         RowBox[{"2", ",", 
+          RowBox[{"{", 
+           RowBox[{"5", ",", "1", ",", "2", ",", "3", ",", "4"}], "}"}]}], 
+         "}"}], ",", 
+        RowBox[{"{", 
+         RowBox[{"3", ",", 
+          RowBox[{"{", 
+           RowBox[{"5", ",", "2", ",", "1", ",", "3", ",", "4"}], "}"}]}], 
+         "}"}], ",", 
+        RowBox[{"{", 
+         RowBox[{"3", ",", 
+          RowBox[{"{", 
+           RowBox[{"5", ",", "2", ",", "3", ",", "1", ",", "4"}], "}"}]}], 
+         "}"}], ",", 
+        RowBox[{"{", 
+         RowBox[{"4", ",", 
+          RowBox[{"{", 
+           RowBox[{"5", ",", "2", ",", "3", ",", "4", ",", "1"}], "}"}]}], 
+         "}"}]}], "}"}]}], "}"}], "]"}]}], ";"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+  "Several", " ", "Wikipedia", " ", "articles", " ", "use", " ", "these", " ",
+    "ones"}], " ", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{
+   RowBox[{"SampleBallots", "[", "\"\<TN Capital\>\"", "]"}], " ", "=", " ", 
+   RowBox[{"{", 
+    RowBox[{
+     RowBox[{"{", 
+      RowBox[{"0.42", ",", 
+       RowBox[{"{", 
+        RowBox[{
+        "\"\<Memphis\>\"", ",", "\"\<Nashville\>\"", ",", 
+         "\"\<Chattanooga\>\"", ",", "\"\<Knoxville\>\""}], "}"}]}], "}"}], 
+     ",", 
+     RowBox[{"{", 
+      RowBox[{"0.26", ",", 
+       RowBox[{"{", 
+        RowBox[{
+        "\"\<Nashville\>\"", ",", "\"\<Chattanooga\>\"", ",", 
+         "\"\<Knoxville\>\"", ",", "\"\<Memphis\>\""}], "}"}]}], "}"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"0.15", ",", 
+       RowBox[{"{", 
+        RowBox[{
+        "\"\<Chattanooga\>\"", ",", "\"\<Knoxville\>\"", ",", 
+         "\"\<Nashville\>\"", ",", "\"\<Memphis\>\""}], "}"}]}], "}"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"0.17", ",", 
+       RowBox[{"{", 
+        RowBox[{
+        "\"\<Knoxville\>\"", ",", "\"\<Chattanooga\>\"", ",", 
+         "\"\<Nashville\>\"", ",", "\"\<Memphis\>\""}], "}"}]}], "}"}]}], 
+    "}"}]}], ";"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{
+   RowBox[{"SampleBallots", "[", "\"\<ABCDS\>\"", "]"}], " ", "=", " ", 
+   RowBox[{"{", 
+    RowBox[{
+     RowBox[{"{", 
+      RowBox[{"25", ",", 
+       RowBox[{"{", "\"\<Andrea\>\"", "}"}]}], "}"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"34", ",", 
+       RowBox[{"{", 
+        RowBox[{
+        "\"\<Carter\>\"", ",", "\"\<Brad\>\"", ",", "\"\<Delilah\>\""}], 
+        "}"}]}], "}"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"7", ",", 
+       RowBox[{"{", 
+        RowBox[{"\"\<Brad\>\"", ",", "\"\<Delilah\>\""}], "}"}]}], "}"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"8", ",", 
+       RowBox[{"{", 
+        RowBox[{"\"\<Delilah\>\"", ",", "\"\<Brad\>\""}], "}"}]}], "}"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"5", ",", 
+       RowBox[{"{", 
+        RowBox[{"\"\<Delilah\>\"", ",", "\"\<Scott\>\""}], "}"}]}], "}"}], 
+     ",", 
+     RowBox[{"{", 
+      RowBox[{"21", ",", 
+       RowBox[{"{", 
+        RowBox[{"\"\<Scott\>\"", ",", "\"\<Delilah\>\""}], "}"}]}], "}"}]}], 
+    "}"}]}], ";"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{"My", " ", 
+   RowBox[{"one", ":", " ", 
+    RowBox[{"ice", "-", 
+     RowBox[{"cream", " ", "flavors"}]}]}]}], " ", "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{
+   RowBox[{"SampleBallots", "[", "\"\<ICF\>\"", "]"}], " ", "=", " ", 
+   RowBox[{"MakeWeighted", "[", 
+    RowBox[{"{", 
+     RowBox[{
+      RowBox[{"{", 
+       RowBox[{
+       "\"\<Vanilla\>\"", ",", "\"\<Neapolitan\>\"", ",", "\"\<Chocolate\>\"",
+         ",", "\"\<Cookie Dough\>\""}], "}"}], ",", 
+      RowBox[{"{", 
+       RowBox[{
+       "\"\<Rocky Road\>\"", ",", "\"\<Mint CC\>\"", ",", "\"\<Chocolate\>\"",
+         ",", "\"\<Vanilla\>\""}], "}"}], ",", 
+      RowBox[{"{", 
+       RowBox[{"\"\<Strawberry\>\"", ",", "\"\<Cherry\>\""}], "}"}], ",", 
+      RowBox[{"{", 
+       RowBox[{"\"\<Cookie Dough\>\"", ",", "\"\<Chocolate\>\""}], "}"}], ",", 
+      RowBox[{"{", 
+       RowBox[{
+       "\"\<Cherry\>\"", ",", "\"\<Mint CC\>\"", ",", "\"\<Rocky Road\>\""}], 
+       "}"}], ",", 
+      RowBox[{"{", 
+       RowBox[{
+       "\"\<Chocolate\>\"", ",", "\"\<Strawberry\>\"", ",", "\"\<Vanilla\>\"",
+         ",", "\"\<Neapolitan\>\""}], "}"}], ",", 
+      RowBox[{"{", 
+       RowBox[{
+       "\"\<Vanilla\>\"", ",", "\"\<Cookie Dough\>\"", ",", 
+        "\"\<Rocky Road\>\""}], "}"}], ",", 
+      RowBox[{"{", 
+       RowBox[{"\"\<Cherry\>\"", ",", "\"\<Strawberry\>\""}], "}"}], ",", 
+      RowBox[{"{", 
+       RowBox[{
+       "\"\<Neapolitan\>\"", ",", "\"\<Rocky Road\>\"", ",", 
+        "\"\<Mint CC\>\""}], "}"}], ",", 
+      RowBox[{"{", 
+       RowBox[{
+       "\"\<Cherry\>\"", ",", "\"\<Vanilla\>\"", ",", "\"\<Strawberry\>\""}], 
+       "}"}], ",", 
+      RowBox[{"{", 
+       RowBox[{
+       "\"\<Chocolate\>\"", ",", "\"\<Rocky Road\>\"", ",", 
+        "\"\<Mint CC\>\""}], "}"}], ",", 
+      RowBox[{"{", 
+       RowBox[{
+       "\"\<Chocolate\>\"", ",", "\"\<Vanilla\>\"", ",", 
+        "\"\<Strawberry\>\""}], "}"}], ",", 
+      RowBox[{"{", 
+       RowBox[{"\"\<Cherry\>\"", ",", "\"\<Mint CC\>\""}], "}"}], ",", 
+      RowBox[{"{", 
+       RowBox[{"\"\<Strawberry\>\"", ",", "\"\<Mint CC\>\""}], "}"}]}], "}"}],
+     "]"}]}], ";"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"SampleBallotNames", " ", "=", " ", 
+   RowBox[{"{", 
+    RowBox[{
+    "\"\<Zero\>\"", ",", "\"\<One\>\"", ",", "\"\<Two\>\"", ",", 
+     "\"\<Beer\>\"", ",", "\"\<Distilled\>\"", ",", "\"\<TN Capital\>\"", 
+     ",", "\"\<ABCDS\>\"", ",", "\"\<ICF\>\""}], "}"}]}], ";"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"DoAllSBs", "[", "f_", "]"}], " ", ":=", " ", 
+  RowBox[{"Table", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"name", ",", 
+      RowBox[{"f", "[", 
+       RowBox[{"SampleBallots", "[", "name", "]"}], "]"}]}], "}"}], ",", 
+    RowBox[{"{", 
+     RowBox[{"name", ",", "SampleBallotNames"}], "}"}]}], "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"ShortBallots", "[", "maxlen_", "]"}], " ", ":=", " ", 
+  RowBox[{"Select", "[", 
+   RowBox[{"SampleBallotNames", ",", 
+    RowBox[{
+     RowBox[{
+      RowBox[{"Length", "[", 
+       RowBox[{"GetCandidates", "[", 
+        RowBox[{"SampleBallots", "[", "#", "]"}], "]"}], "]"}], 
+      "\[LessEqual]", "maxlen"}], "&"}]}], "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"DoShortSBs", "[", 
+   RowBox[{"f_", ",", "maxlen_"}], "]"}], " ", ":=", " ", 
+  RowBox[{"Table", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"name", ",", 
+      RowBox[{"f", "[", 
+       RowBox[{"SampleBallots", "[", "name", "]"}], "]"}]}], "}"}], ",", 
+    RowBox[{"{", 
+     RowBox[{"name", ",", 
+      RowBox[{"ShortBallots", "[", "maxlen", "]"}]}], "}"}]}], 
+   "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"DoShortSBs", "[", 
+  RowBox[{"Dodgson", ",", "5"}], "]"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"DoAllSBs", "[", "MaximalLotteries", "]"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"AllVoteAlgs", " ", "=", " ", 
+   RowBox[{"{", 
+    RowBox[{
+     RowBox[{"{", 
+      RowBox[{"\"\<Total Count\>\"", ",", " ", "TotalCount"}], "}"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"\"\<All Votes\>\"", ",", " ", "AllVotes"}], "}"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"\"\<Top One\>\"", ",", " ", "TopOne"}], "}"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"\"\<Top Number List\>\"", ",", " ", "TopNumList"}], "}"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"\"\<Minus Bottom\>\"", ",", " ", "MinusBottom"}], "}"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"\"\<Borda\>\"", ",", " ", "Borda"}], "}"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"\"\<Modified Borda\>\"", ",", " ", "ModBorda"}], "}"}], ",", 
+     " ", 
+     RowBox[{"{", 
+      RowBox[{"\"\<Cumulative Borda\>\"", ",", " ", "CumulBorda"}], "}"}], 
+     ",", " ", 
+     RowBox[{"{", 
+      RowBox[{"\"\<Top-Two Runoff\>\"", ",", " ", "TopTwoRunoff"}], "}"}], 
+     ",", 
+     RowBox[{"{", 
+      RowBox[{"\"\<Sequential Runoff\>\"", ",", " ", "SequentialRunoff"}], 
+      "}"}], ",", " ", 
+     RowBox[{"{", 
+      RowBox[{"\"\<STV: 2 Seats\>\"", ",", " ", 
+       RowBox[{
+        RowBox[{"SingleTransferableVote", "[", 
+         RowBox[{"#", ",", "2"}], "]"}], "&"}]}], "}"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"\"\<STV: 3 Seats\>\"", ",", " ", 
+       RowBox[{
+        RowBox[{"SingleTransferableVote", "[", 
+         RowBox[{"#", ",", "3"}], "]"}], "&"}]}], "}"}], ",", " ", 
+     RowBox[{"{", 
+      RowBox[{"\"\<CPO STV: 1 Seat\>\"", ",", 
+       RowBox[{
+        RowBox[{"CPOSTVSchulze", "[", 
+         RowBox[{"#", ",", "1"}], "]"}], "&"}]}], "}"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"\"\<CPO STV: 2 Seats\>\"", ",", 
+       RowBox[{
+        RowBox[{"CPOSTVSchulze", "[", 
+         RowBox[{"#", ",", "2"}], "]"}], "&"}]}], "}"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"\"\<CPO STV: 3 Seats\>\"", ",", 
+       RowBox[{
+        RowBox[{"CPOSTVSchulze", "[", 
+         RowBox[{"#", ",", "3"}], "]"}], "&"}]}], "}"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"\"\<Condorcet Winner\>\"", ",", "CondorcetWinner"}], "}"}], 
+     ",", " ", 
+     RowBox[{"{", 
+      RowBox[{"\"\<Schulze Beatpath\>\"", ",", "Schulze"}], "}"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"\"\<Copeland\>\"", ",", " ", "Copeland"}], "}"}], ",", " ", 
+     RowBox[{"{", 
+      RowBox[{"\"\<Minimax Winning-Votes\>\"", ",", 
+       RowBox[{
+        RowBox[{"Minimax", "[", 
+         RowBox[{"#", ",", "\"\<wins\>\""}], "]"}], "&"}]}], "}"}], ",", " ", 
+     
+     RowBox[{"{", 
+      RowBox[{"\"\<Minimax Margins\>\"", ",", 
+       RowBox[{
+        RowBox[{"Minimax", "[", 
+         RowBox[{"#", ",", "\"\<marg\>\""}], "]"}], "&"}]}], "}"}], ",", " ", 
+     
+     RowBox[{"{", 
+      RowBox[{"\"\<Minimax Pairwise-Opposition\>\"", ",", 
+       RowBox[{
+        RowBox[{"Minimax", "[", 
+         RowBox[{"#", ",", "\"\<oppo\>\""}], "]"}], "&"}]}], "}"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"\"\<Kemeny-Young\>\"", ",", " ", "KemenyYoung"}], "}"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"\"\<Dodgson\>\"", ",", "Dodgson"}], "}"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"\"\<Tideman Ranked Pairs\>\"", ",", "RankedPairs"}], "}"}], 
+     ",", 
+     RowBox[{"{", 
+      RowBox[{"\"\<Maximal Lotteries\>\"", ",", "MaximalLotteries"}], "}"}], 
+     ",", 
+     RowBox[{"{", 
+      RowBox[{"\"\<Schwartz Maximal Set\>\"", ",", 
+       RowBox[{
+        RowBox[{"MaximalSet", "[", 
+         RowBox[{"#", ",", "\"\<Schwartz\>\""}], "]"}], "&"}]}], "}"}], ",", 
+     RowBox[{"{", 
+      RowBox[{"\"\<Smith Maximal Set\>\"", ",", 
+       RowBox[{
+        RowBox[{"MaximalSet", "[", 
+         RowBox[{"#", ",", "\"\<Smith\>\""}], "]"}], "&"}]}], "}"}]}], 
+    "}"}]}], ";"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"FactorialAlgNames", " ", "=", " ", 
+   RowBox[{"{", 
+    RowBox[{"\"\<Kemeny-Young\>\"", ",", " ", "\"\<Dodgson\>\""}], "}"}]}], 
+  ";"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{"(*", " ", 
+  RowBox[{
+   RowBox[{
+   "With", " ", "an", " ", "option", " ", "\"\<DoFactorial\>\"", " ", "to", 
+    " ", "avoid", " ", "doing", " ", "factorial"}], "-", 
+   RowBox[{"time", " ", "algorithms", " ", "if", " ", "desired"}]}], " ", 
+  "*)"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"DoAllVoteAlgs", "[", 
+   RowBox[{"ballotbox_", ",", "DoFactorial_"}], "]"}], " ", ":=", " ", 
+  RowBox[{"Module", "[", 
+   RowBox[{
+    RowBox[{"{", 
+     RowBox[{"nmag", ",", "name", ",", "alg"}], "}"}], ",", 
+    "\[IndentingNewLine]", 
+    RowBox[{"Table", "[", 
+     RowBox[{
+      RowBox[{
+       RowBox[{
+        RowBox[{"{", 
+         RowBox[{"name", ",", "alg"}], "}"}], " ", "=", " ", "nmag"}], ";", 
+       "\[IndentingNewLine]", 
+       RowBox[{"{", 
+        RowBox[{"name", ",", 
+         RowBox[{"If", "[", 
+          RowBox[{
+           RowBox[{"DoFactorial", " ", "||", " ", 
+            RowBox[{"(", 
+             RowBox[{"!", 
+              RowBox[{"MemberQ", "[", 
+               RowBox[{"FactorialAlgNames", ",", "name"}], "]"}]}], ")"}]}], 
+           ",", " ", 
+           RowBox[{"alg", "[", "ballotbox", "]"}], ",", "Null"}], "]"}]}], 
+        "}"}]}], ",", "\[IndentingNewLine]", 
+      RowBox[{"{", 
+       RowBox[{"nmag", ",", "AllVoteAlgs"}], "}"}]}], "]"}]}], 
+   "\[IndentingNewLine]", "]"}]}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"DoAllVoteAlgs", "[", 
+   RowBox[{
+    RowBox[{"SampleBallots", "[", "\"\<TN Capital\>\"", "]"}], ",", "True"}], 
+   "]"}], " ", "//", " ", "TableForm"}]], "Input"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"DoAllVoteAlgs", "[", 
+   RowBox[{
+    RowBox[{"SampleBallots", "[", "\"\<ICF\>\"", "]"}], ",", "False"}], "]"}],
+   " ", "//", " ", "TableForm"}]], "Input"]
+}, Closed]]
+},
+WindowSize->{810, 695},
+WindowMargins->{{231, Automatic}, {Automatic, 0}},
+FrontEndVersion->"11.0 for Mac OS X x86 (32-bit, 64-bit Kernel) (September \
+21, 2016)",
+StyleDefinitions->"Default.nb"
+]
+(* End of Notebook Content *)
+
+(* Internal cache information *)
+(*CellTagsOutline
+CellTagsIndex->{}
+*)
+(*CellTagsIndex
+CellTagsIndex->{}
+*)
+(*NotebookFileOutline
+Notebook[{
+Cell[558, 20, 4521, 98, 1531, "Text"],
+Cell[CellGroupData[{
+Cell[5104, 122, 29, 0, 64, "Section"],
+Cell[CellGroupData[{
+Cell[5158, 126, 27, 0, 44, "Subsection"],
+Cell[5188, 128, 268, 9, 32, "Input"],
+Cell[5459, 139, 1615, 42, 222, "Input"],
+Cell[7077, 183, 298, 9, 32, "Input"],
+Cell[7378, 194, 324, 10, 32, "Input"],
+Cell[7705, 206, 396, 12, 32, "Input"],
+Cell[8104, 220, 469, 10, 75, "Input"],
+Cell[8576, 232, 1123, 29, 159, "Input"],
+Cell[9702, 263, 224, 6, 32, "Input"],
+Cell[9929, 271, 324, 9, 32, "Input"],
+Cell[10256, 282, 354, 11, 32, "Input"],
+Cell[10613, 295, 581, 14, 117, "Input"],
+Cell[11197, 311, 1733, 50, 180, "Input"]
+}, Closed]],
+Cell[CellGroupData[{
+Cell[12967, 366, 41, 0, 36, "Subsection"],
+Cell[13011, 368, 259, 8, 32, "Input"],
+Cell[13273, 378, 350, 10, 32, "Input"],
+Cell[13626, 390, 185, 4, 32, "Input"],
+Cell[13814, 396, 411, 12, 54, "Input"],
+Cell[14228, 410, 181, 4, 32, "Input"],
+Cell[14412, 416, 1292, 34, 180, "Input"],
+Cell[15707, 452, 191, 4, 32, "Input"],
+Cell[15901, 458, 224, 7, 32, "Input"],
+Cell[16128, 467, 832, 25, 96, "Input"],
+Cell[16963, 494, 328, 9, 32, "Input"],
+Cell[17294, 505, 632, 18, 96, "Input"]
+}, Closed]],
+Cell[CellGroupData[{
+Cell[17963, 528, 35, 0, 36, "Subsection"],
+Cell[18001, 530, 221, 7, 32, "Input"],
+Cell[18225, 539, 984, 27, 117, "Input"],
+Cell[19212, 568, 179, 4, 32, "Input"],
+Cell[19394, 574, 987, 27, 117, "Input"],
+Cell[20384, 603, 185, 4, 32, "Input"],
+Cell[20572, 609, 227, 7, 32, "Input"],
+Cell[20802, 618, 1865, 51, 180, "Input"],
+Cell[22670, 671, 189, 4, 32, "Input"]
+}, Closed]],
+Cell[CellGroupData[{
+Cell[22896, 680, 31, 0, 36, "Subsection"],
+Cell[22930, 682, 472, 15, 75, "Input"],
+Cell[23405, 699, 3039, 75, 516, "Input"],
+Cell[26447, 776, 1424, 39, 201, "Input"],
+Cell[27874, 817, 2133, 53, 285, "Input"],
+Cell[30010, 872, 256, 8, 32, "Input"],
+Cell[30269, 882, 6806, 161, 831, "Input"],
+Cell[37078, 1045, 420, 14, 32, "Input"],
+Cell[37501, 1061, 9036, 206, 1125, "Input"],
+Cell[46540, 1269, 441, 11, 75, "Input"]
+}, Closed]],
+Cell[CellGroupData[{
+Cell[47018, 1285, 37, 0, 36, "Subsection"],
+Cell[47058, 1287, 3307, 84, 369, "Input"],
+Cell[50368, 1373, 260, 5, 54, "Input"],
+Cell[50631, 1380, 721, 18, 117, "Input"],
+Cell[51355, 1400, 311, 6, 54, "Input"],
+Cell[51669, 1408, 1072, 29, 117, "Input"],
+Cell[52744, 1439, 938, 20, 138, "Input"],
+Cell[53685, 1461, 5046, 121, 621, "Input"],
+Cell[58734, 1584, 168, 4, 32, "Input"],
+Cell[58905, 1590, 179, 4, 32, "Input"],
+Cell[59087, 1596, 124, 3, 32, "Input"],
+Cell[59214, 1601, 573, 15, 96, "Input"]
+}, Closed]],
+Cell[CellGroupData[{
+Cell[59824, 1621, 39, 0, 36, "Subsection"],
+Cell[59866, 1623, 1987, 49, 348, "Input"],
+Cell[61856, 1674, 886, 23, 117, "Input"],
+Cell[62745, 1699, 298, 9, 32, "Input"],
+Cell[63046, 1710, 855, 22, 117, "Input"],
+Cell[63904, 1734, 3923, 99, 558, "Input"],
+Cell[67830, 1835, 191, 4, 32, "Input"],
+Cell[68024, 1841, 951, 25, 117, "Input"],
+Cell[68978, 1868, 350, 10, 32, "Input"],
+Cell[69331, 1880, 1722, 46, 222, "Input"],
+Cell[71056, 1928, 193, 4, 32, "Input"],
+Cell[71252, 1934, 640, 16, 75, "Input"],
+Cell[71895, 1952, 3130, 74, 411, "Input"],
+Cell[75028, 2028, 307, 8, 32, "Input"],
+Cell[75338, 2038, 278, 9, 32, "Input"],
+Cell[75619, 2049, 2078, 55, 327, "Input"],
+Cell[77700, 2106, 935, 24, 138, "Input"],
+Cell[78638, 2132, 199, 4, 32, "Input"],
+Cell[78840, 2138, 263, 8, 32, "Input"],
+Cell[79106, 2148, 1153, 34, 117, "Input"],
+Cell[80262, 2184, 1873, 46, 243, "Input"],
+Cell[82138, 2232, 1533, 41, 159, "Input"],
+Cell[83674, 2275, 450, 13, 54, "Input"],
+Cell[84127, 2290, 5029, 124, 558, "Input"],
+Cell[89159, 2416, 199, 4, 32, "Input"],
+Cell[89361, 2422, 864, 26, 75, "Input"],
+Cell[90228, 2450, 2173, 60, 201, "Input"],
+Cell[92404, 2512, 205, 4, 32, "Input"]
+}, Closed]],
+Cell[CellGroupData[{
+Cell[92646, 2521, 34, 0, 36, "Subsection"],
+Cell[92683, 2523, 612, 16, 75, "Input"],
+Cell[93298, 2541, 1634, 41, 222, "Input"],
+Cell[94935, 2584, 4187, 107, 474, "Input"],
+Cell[99125, 2693, 1024, 25, 201, "Input"],
+Cell[100152, 2720, 1442, 35, 285, "Input"]
+}, Closed]],
+Cell[CellGroupData[{
+Cell[101631, 2760, 42, 0, 36, "Subsection"],
+Cell[101676, 2762, 284, 8, 54, "Input"],
+Cell[101963, 2772, 3119, 72, 474, "Input"],
+Cell[105085, 2846, 651, 20, 54, "Input"],
+Cell[105739, 2868, 5632, 137, 600, "Input"]
+}, Closed]]
+}, Closed]],
+Cell[CellGroupData[{
+Cell[111420, 3011, 27, 0, 50, "Section"],
+Cell[111450, 3013, 91, 2, 32, "Input"],
+Cell[111544, 3017, 148, 4, 32, "Input"],
+Cell[111695, 3023, 255, 8, 32, "Input"],
+Cell[111953, 3033, 456, 15, 32, "Input"],
+Cell[112412, 3050, 456, 12, 54, "Input"],
+Cell[112871, 3064, 1484, 42, 117, "Input"],
+Cell[114358, 3108, 1324, 38, 117, "Input"],
+Cell[115685, 3148, 161, 4, 32, "Input"],
+Cell[115849, 3154, 1079, 31, 117, "Input"],
+Cell[116931, 3187, 1045, 32, 75, "Input"],
+Cell[117979, 3221, 179, 5, 32, "Input"],
+Cell[118161, 3228, 2009, 53, 201, "Input"],
+Cell[120173, 3283, 316, 7, 54, "Input"],
+Cell[120492, 3292, 356, 10, 32, "Input"],
+Cell[120851, 3304, 375, 10, 54, "Input"],
+Cell[121229, 3316, 424, 13, 54, "Input"],
+Cell[121656, 3331, 92, 2, 32, "Input"],
+Cell[121751, 3335, 76, 1, 32, "Input"],
+Cell[121830, 3338, 3761, 98, 348, "Input"],
+Cell[125594, 3438, 183, 5, 32, "Input"],
+Cell[125780, 3445, 287, 7, 32, "Input"],
+Cell[126070, 3454, 1068, 30, 117, "Input"],
+Cell[127141, 3486, 198, 5, 32, "Input"],
+Cell[127342, 3493, 191, 5, 32, "Input"]
+}, Closed]]
+}
+]
+*)
+
