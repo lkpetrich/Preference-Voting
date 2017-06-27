@@ -35,6 +35,9 @@
 # CumulBorda(BBox): like ModBorda, but divides each ballot's counts
 # by that ballot's total count, thus simulating cumulative voting
 #
+# MajorityJudgment(BBox): sorts the candidates
+# by the weighted medians of their ranks
+#
 #
 # These runoff methods return a list of results of rounds,
 # each of them like the previous functions' output
@@ -369,6 +372,67 @@ def CumulBordaFunction(Counts, Weight, Votes, Cands):
 
 def CumulBorda(BBox):
 	return BBoxCounter(BBox, CumulBordaFunction)
+
+# https://en.wikipedia.org/wiki/Majority_judgment
+def WeightedMedian(wtrnks):
+	# Sort by ranks and find cumulative weights
+	wrsort = list(wtrnks)
+	wrsort.sort(lambda a,b: cmp(a[0],b[0]))
+	
+	totwt = 0
+	cwtrks = []
+	for rk, wt in wrsort:
+		cwr = (rk, totwt)
+		cwtrks.append(cwr)
+		totwt += wt
+	
+	hftot = 0.5*totwt
+	
+	# Search through to find contributors to the median:
+	# those that make the boolean variable addmdn true. 
+	# Add up their contributions in rksum (sum of ranks)
+	# and rkcnt (count of ranks).
+	rksum = 0.; rkcnt = 0
+	n = len(cwtrks)
+	for k in xrange(n):
+		addmdn = cwtrks[k][1] <= hftot
+		if addmdn:
+			if k < n-1:
+				addmdn = cwtrks[k+1][1] >= hftot
+			else:
+				addmdn = True
+		
+		if addmdn:
+			rksum += cwtrks[k][0]; rkcnt += 1
+	
+	# Finally, the median 
+	return rksum/rkcnt
+
+def MajorityJudgment(BBox):
+	Cands = BBox.Candidates()
+	NumCands = len(Cands)
+	
+	CandRanks = []
+	for Ballot in BBox.Ballots:
+		wt, prefs = Ballot
+		for k,pref in enumerate(prefs):
+			CandRanks.append( (pref, NumCands-k, wt) )
+		for Cand in Cands:
+			if Cand not in prefs:
+				CandRanks.append( (Cand, 0, wt) )
+	
+	CandRankLists = {}
+	for Cand in Cands:
+		CandRankLists[Cand] = []
+	
+	for CREntry in CandRanks:
+		CandRankLists[CREntry[0]].append(CREntry[1:3])
+	
+	CandWMs = [(Cand, WeightedMedian(CandRankLists[Cand])) for Cand in Cands]
+	
+	CandWMs.sort(CCSortFunction)
+	return tuple(CandWMs)
+
 
 # Multistep methods
 
@@ -1365,7 +1429,7 @@ def MaximalSetSequence(BBox, Type):
 
 # For debugging
 
-def DumpMaximalLotteries(BBox):
+def DumpSingleAlgorithm(Algorithm,BBox):
 
 	# For reference
 	print "Schulze and Tideman:"
@@ -1373,16 +1437,16 @@ def DumpMaximalLotteries(BBox):
 	print RankedPairs(BBox)
 	print
 	
-	print "Maximal Lotteries:"
-	res = MaximalLotteries(BBox)
-	for r in res: print r
+	print "Algorithm to Test:"
+	res = Algorithm(BBox)
+	print res
 	print
 
 
 def DumpAll(Ballots, DoNFactorial=True):
 	BBox = BallotBox(Ballots)
 
-	# DumpMaximalLotteries(BBox); return
+	# DumpSingleAlgorithm(MajorityJudgment,BBox); return
 	
 	print "Candidates:",
 	Cands = BBox.Candidates()
@@ -1423,6 +1487,11 @@ def DumpAll(Ballots, DoNFactorial=True):
 	
 	print "Cumulative Borda Count:"
 	res = CumulBorda(BBox)
+	for r in res: print r
+	print
+	
+	print "Majority Judgment:"
+	res = MajorityJudgment(BBox)
 	for r in res: print r
 	print
 	
