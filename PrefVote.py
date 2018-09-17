@@ -62,14 +62,16 @@
 # + or -, then the list
 # Also adds a fake round that lists the winners
 #
-# CompPairOutcomesSTV(BBox, Num): fill N seats (N is second arg)
+# CPOSTV(BBox, Num): fill N seats (N is second arg)
 # Comparison of Pairs of Outcomes by Single Transferable Vote
 # Finds all the possible outcomes and does pairwise comparisons,
 # creating a Condorcet matrix for them
-# One then uses some Condorcet method on it to find the winners
+# This code uses the Schulze method to find the winning set
 #
-# Schulze STV not implemented because of my difficulty in
-# understanding the algorithm
+# SchulzeSTV(BBox, Num): fill N seats (N is second arg)
+# Schulze STV compares sets of candidates that differ
+# by only one candidate, creating a Condorcet matrix for them
+# This code uses the Schulze method to find the winning set
 #
 #
 # Condorcet methods
@@ -547,23 +549,34 @@ def SingleTransferableVote(BBox, Num):
 
 # http://en.wikipedia.org/wiki/CPO-STV
 
-def CompPairOutcomesSTV(BBox, Num):
+# Subsets with length sslen
+# of a range of integers from 0 to rnglen-1
+def RangeSubsets(rnglen, sslen):
+	RSS = [[]]
+	for ns in xrange(sslen):
+		NewRSS = []
+		for SS in RSS:
+			base = max(SS)+1 if len(SS) > 0 else 0
+			for k in xrange(base,rnglen-sslen+ns+1):
+				NewSS = SS + [k]
+				NewRSS.append(NewSS)
+		RSS = NewRSS
+	return RSS
+
+# Subsets with length sslen
+# of a list
+def ListSubsets(lst, sslen):
+	rss = RangeSubsets(len(lst),sslen)
+	return [[lst[n] for n in ss] for ss in rss]
+
+# The main event
+# Returns sets of candidates and a Condorcet matrix for them
+def CPOSTVMatrix(BBox, Num):
 	Quota = TotalCount(BBox)/(Num + 1.0)
 	Cands = BBox.Candidates()
-	n = len(Cands)
 	
 	# Find all possible sets of Num candidates
-	Posses = [[]]
-	for m in xrange(Num):
-		NewPosses = []
-		for Poss in Posses:
-			base = max(Poss)+1 if len(Poss) > 0 else 0
-			for k in xrange(base,n-Num+m+1):
-				NewPoss = Poss + [k]
-				NewPosses.append(NewPoss)
-		Posses = NewPosses
-	
-	CandPosses = [[Cands[p] for p in Poss] for Poss in Posses]
+	CandPosses = ListSubsets(Cands,Num)
 	
 	ncp = len(CandPosses)
 	CprMat = [ncp*[0] for k in xrange(ncp)]
@@ -615,8 +628,42 @@ def CompPairOutcomesSTV(BBox, Num):
 	return (CandPosses, CprMat)
 
 # http://en.wikipedia.org/wiki/Schulze_STV
-# Not implemented because of the difficulty of understanding the algorithm
+
+# Much like CPO-STV, but comparing sets of candidates that differ by only one member
+
+# Returns sets of candidates and a Condorcet matrix for them
+def SchulzeSTVMatrix(BBox,Num):
+	Cands = BBox.Candidates()
+
+	# Find all possible sets of Num candidates
+	CandPosses = ListSubsets(Cands,Num)
 	
+	# Turn into sets for convenience
+	CandPossSets = map(set,CandPosses)
+	
+	# Find the score of each set relative to each other set
+	ncp = len(CandPosses)
+	ScoreMat = [ncp*[0] for k in xrange(ncp)]
+	for i in xrange(ncp):
+		CPOrig = CandPosses[i]
+		for j in xrange(ncp):
+			scnddiff = list(CandPossSets[j] - CandPossSets[i])
+			if len(scnddiff) != 1: continue
+			sdval = scnddiff[0]
+			ncpogt = Num*[0]
+			for Ballot in BBox.Ballots:
+				wt, prefs = Ballot
+				if sdval not in prefs: continue
+				sdvix = prefs.index(sdval)
+				for k, cpoval in enumerate(CPOrig):
+					if cpoval not in prefs: continue
+					cpovix = prefs.index(cpoval)
+					if cpovix < sdvix:
+						ncpogt[k] += wt
+			ScoreMat[i][j] = min(ncpogt)
+
+	return (CandPosses, ScoreMat)
+
 
 # Condorcet methods
 
@@ -702,6 +749,22 @@ def SchulzePrefOrder(PrefMat):
 	return Ordering
 
 def Schulze(BBox): return CondorcetPrefOrder(BBox,SchulzePrefOrder)
+
+
+# Sorters for multiseat methods mentioned earlier
+
+def SortWithSchulze(CandPrefMat):
+	Cands, PrefMat = CandPrefMat
+	CandsOrdered = CondorcetCandPMPrefOrder(Cands, PrefMat, SchulzePrefOrder)
+	if len(CandsOrdered) > 0:
+		return CandsOrdered[0]
+	else:
+		return None
+
+def CPOSTV(BBox, Num): return SortWithSchulze(CPOSTVMatrix(BBox, Num))
+
+def SchulzeSTV(BBox, Num): return SortWithSchulze(SchulzeSTVMatrix(BBox, Num))
+
 
 # http://en.wikipedia.org/wiki/Copeland%27s_method
 
@@ -978,7 +1041,6 @@ def RankedPairs(BBox): return CondorcetPrefOrder(BBox,RankedPairsPrefOrder)
 
 
 # https://en.wikipedia.org/wiki/Maximal_lotteries
-
 
 # Use linear programming
 
@@ -1443,10 +1505,37 @@ def DumpSingleAlgorithm(Algorithm,BBox):
 	print
 
 
+def DumpMultiWinnerAlgorithms(BBox):
+
+	Cands = BBox.Candidates()
+	NumCands = len(Cands)
+
+	for k in xrange(min(3,NumCands)):
+		Num = k+1
+		print "Single Transferable Vote:", Num
+		reslist = SingleTransferableVote(BBox,Num)
+		# Only show the final result
+		print reslist[-1]
+		print
+
+	for k in xrange(min(3,NumCands)):
+		Num = k+1
+		print "CPO by STV:", Num
+		print CPOSTV(BBox,Num)
+		print
+
+	for k in xrange(min(3,NumCands)):
+		Num = k+1
+		print "Schulze STV:", Num
+		print SchulzeSTV(BBox,Num)
+		print
+
+
 def DumpAll(Ballots, DoNFactorial=True):
 	BBox = BallotBox(Ballots)
 
 	# DumpSingleAlgorithm(MajorityJudgment,BBox); return
+	# DumpMultiWinnerAlgorithms(BBox); return
 	
 	print "Candidates:",
 	Cands = BBox.Candidates()
@@ -1541,11 +1630,14 @@ def DumpAll(Ballots, DoNFactorial=True):
 
 	for k in xrange(min(3,NumCands)):
 		Num = k+1
-		print "Comparison of Pairs of Outcomes by STV:", Num
-		CandSets, PrefMat = CompPairOutcomesSTV(BBox,Num)
-		CandSetsOrdered = CondorcetCandPMPrefOrder(CandSets, PrefMat, SchulzePrefOrder)
-		if len(CandSetsOrdered) > 0:
-			print CandSetsOrdered[0]
+		print "CPO by STV:", Num
+		print CPOSTV(BBox,Num)
+		print
+
+	for k in xrange(min(3,NumCands)):
+		Num = k+1
+		print "Schulze STV:", Num
+		print SchulzeSTV(BBox,Num)
 		print
 	
 	print "Condorcet Matrix:"
