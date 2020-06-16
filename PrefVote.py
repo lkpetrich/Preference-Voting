@@ -35,6 +35,9 @@
 # CumulBorda(BBox): like ModBorda, but divides each ballot's counts
 # by that ballot's total count, thus simulating cumulative voting
 #
+# Dowdall(BBox): like Borda, uses a different weighting:
+# 1, 1/2, 1/3, 1/4, ...
+#
 # MajorityJudgment(BBox): sorts the candidates
 # by the weighted medians of their ranks
 #
@@ -45,8 +48,14 @@
 # TopNumList(BBox): returns a list of all TopNum round results
 # Bucklin's method cuts off when some candidate gets a majority
 #
+# WinnerDropping(BBox, DoRound, GetWinner): returns a list of
+# DoRound results, with the winner of each one dropped from the count
+# Needs GetWinner for getting the winner from each round's results
+#
 # TopTwoRunoff(BBox, DoRound=TopOne): repeats with the top two candidates,
 # or all the candidates who got the most votes
+#
+# For STAR voting, use Borda or some similar method for DoRound
 #
 # SequentialRunoff(BBox, ThresholdFunc=min, DoRound=TopOne):
 # repeats without the candidates who got the fewest votes,
@@ -375,6 +384,14 @@ def CumulBordaFunction(Counts, Weight, Votes, Cands):
 def CumulBorda(BBox):
 	return BBoxCounter(BBox, CumulBordaFunction)
 
+def DowdallFunction(Counts, Weight, Votes, Cands):
+	MaxNum = len(Cands)
+	for k,Vote in enumerate(Votes):
+		Counts[Vote] += Weight/float(k+1)
+
+def Dowdall(BBox):
+	return BBoxCounter(BBox, DowdallFunction)
+
 # https://en.wikipedia.org/wiki/Majority_judgment
 def WeightedMedian(wtrnks):
 	# Sort by ranks and find cumulative weights
@@ -437,6 +454,15 @@ def MajorityJudgment(BBox):
 
 
 # Multistep methods
+
+def WinnerDropping(BBox, DoRound, GetWinner):
+	NewBBox = BBox
+	rounds = []
+	while len(NewBBox.Ballots) > 0:
+		res = DoRound(NewBBox)
+		rounds.append(res)
+		NewBBox = RemoveCandidates(NewBBox, [GetWinner(res)])
+	return tuple(rounds)
 
 # http://en.wikipedia.org/wiki/Contingent_vote
 # http://en.wikipedia.org/wiki/Two-round_system
@@ -1579,6 +1605,11 @@ def DumpAll(Ballots, DoNFactorial=True):
 	for r in res: print r
 	print
 	
+	print "Dowdall System:"
+	res = Dowdall(BBox)
+	for r in res: print r
+	print
+	
 	print "Majority Judgment:"
 	res = MajorityJudgment(BBox)
 	for r in res: print r
@@ -1589,13 +1620,29 @@ def DumpAll(Ballots, DoNFactorial=True):
 	for k, res in enumerate(reslist):
 		print "Round", k+1
 		for r in res: print r
-	print		
+	print
+	
+	print "STAR Voting:"
+	reslist = TopTwoRunoff(BBox,Borda)
+	for k, res in enumerate(reslist):
+		print "Round", k+1
+		for r in res: print r
+	print
 
 	print "Sequential Runoff:"
 	reslist = SequentialRunoff(BBox)
 	for k, res in enumerate(reslist):
 		print "Round", k+1
 		for r in res: print r
+	print
+
+	print "Winner Dropping for SR:"
+	reslistlist = WinnerDropping(BBox, SequentialRunoff, lambda r: r[-1][0][0])
+	for k, reslist in enumerate(reslistlist):
+		print "Overall Round", k+1
+		for l, res in enumerate(reslist):
+			print "SR Round", l+1
+			for r in res: print r
 	print
 	
 	print "Baldwin:"
