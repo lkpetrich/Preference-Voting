@@ -43,3 +43,7 @@ Condorcet methods:
 Maximal sets:
 - Smith: smallest set of candidates that beats all others
 - Schwartz: union of sets of candidates that beat or tie all others, with no proper subset with that property
+
+Extra Methods:
+- Descending Solid Coalitions
+- Condorcet with Fallback (Black's method): uses the Condorcet winner, or else some other method. Can use the Smith or Schwartz sets
