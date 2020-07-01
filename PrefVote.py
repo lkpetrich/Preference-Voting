@@ -153,6 +153,21 @@
 # MaximalSetSequence(BBox, Type)
 # Returns a sequence of maximal sets found,
 # with the previous ones removed from the ballots
+#
+#
+# Extra Methods
+#
+# DescendingSolidCoalitions(BBox)
+# Descending Solid Coalitions
+# Equivalent to Descending Acquiescing Coalitions
+# because there are no tied preferences here
+# Returns its winner(s)
+#
+# CondorcetWithFallback(BBox, fallback=Borda, settype="All")
+# Black's method. It tries to find the Condorcet winner,
+# and if it fails to do so, then falls back on another method
+# evaluated on some subset of the candidates: "All", "Smith", "Schwartz".
+# Returns (True, Condorcet winner) or (False, fallback-method output)
 
 # Turns preference numbering of candidates into an order
 # Assumes 1-based numbers
@@ -1446,7 +1461,7 @@ def MaximalLotteries(BBox):
 
 
 # Find the Smith and Schwartz sets
-# From http://wiki.electorama.com/wiki/Maximal_elements_algorithms
+# From https://electowiki.org/wiki/Maximal_elements_algorithms
 
 def PrefMatRelations(PrefMat, Type):
 	n = len(PrefMat)
@@ -1515,14 +1530,74 @@ def MaximalSetSequence(BBox, Type):
 	return tuple(MaximalSets)
 
 
+# All the subsets of a Container
+# Returns as tuple of tuples
+def Subsets(ctnr):
+	ssts = [[]]
+	for x in ctnr:
+		nwssts = []
+		for st in ssts:
+			nwssts.append(st)
+			nwssts.append(st+[x])
+		ssts = nwssts
+	return tuple(map(tuple,ssts))
+	
+# Descending Solid Coalitions
+# From https://electowiki.org/wiki/Maximal_elements_algorithms
+
+def DescendingSolidCoalitions(BBox):
+	sbsts = Subsets(BBox.Candidates())
+	# Nonempty ones only
+	sbsts = [s for s in sbsts if len(s) > 0]
+	sbcts = []
+	for sb in sbsts:
+		sbln = len(sb)
+		sbct = 0
+		for Ballot in BBox.Ballots:
+			Weight = Ballot[0]
+			Votes = Ballot[1]
+			if len(Votes) < sbln: continue
+			vtc = list(Votes[:sbln])
+			vtc.sort()
+			if tuple(vtc) == sb:
+				sbct += Weight
+		sbcts.append(sbct)
+	sbcx = zip(sbsts,sbcts)
+	sbcx.sort(lambda a,b: -cmp(a[1],b[1]))
+	
+	candset = set(BBox.Candidates())
+	winset = set(BBox.Candidates())
+	for sb,ct in sbcx:
+		sbc = candset - set(sb)
+		nwwinset = winset - sbc
+		if len(nwwinset) > 0:
+			winset = nwwinset
+	winlst = list(winset)
+	winlst.sort()
+	return tuple(winlst)
+
+# Black's method
+def CondorcetWithFallback(BBox, fallback=Borda, settype="All"):
+	cond = CondorcetWinner(BBox)
+	if cond[0]:
+		return cond
+	else:
+		if settype == "All":
+			fbblts = BBox
+		else:
+			fbblts = KeepCandidates(BBox, MaximalSet(BBox,"Smith"))
+		return (False, fallback(fbblts))
+
+#
 # For debugging
+#
 
 def DumpSingleAlgorithm(Algorithm,BBox):
 
 	# For reference
-	print "Schulze and Tideman:"
+	print "Schulze and Borda:"
 	print Schulze(BBox)
-	print RankedPairs(BBox)
+	print Borda(BBox)
 	print
 	
 	print "Algorithm to Test:"
@@ -1560,7 +1635,7 @@ def DumpMultiWinnerAlgorithms(BBox):
 def DumpAll(Ballots, DoNFactorial=True):
 	BBox = BallotBox(Ballots)
 
-	# DumpSingleAlgorithm(MajorityJudgment,BBox); return
+	# DumpSingleAlgorithm(CondorcetWithFallback,BBox); return
 	# DumpMultiWinnerAlgorithms(BBox); return
 	
 	print "Candidates:",
@@ -1773,6 +1848,21 @@ def DumpAll(Ballots, DoNFactorial=True):
 	print "Sequence of maximal sets: Smith and Schwartz sets:"
 	print MaximalSetSequence(BBox,"Smith")
 	print MaximalSetSequence(BBox,"Schwartz")
+	print
+	
+	print "Descending Solid Coalitions"
+	res = DescendingSolidCoalitions(BBox)
+	for r in res: print r
+	print
+	
+	print "Black: Condorcet with Fallback"
+	res = CondorcetWithFallback(BBox)
+	for r in res: print r
+	print
+	
+	print "Black: Condorcet with Fallback (Sequential Runoff, Smith set)"
+	res = CondorcetWithFallback(BBox,SequentialRunoff,"Smith")
+	for r in res: print r
 	print
 	
 	print
