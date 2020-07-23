@@ -25,13 +25,18 @@ Rated or scored votes:
 Multiple-round methods:
 - Winner Dropping: finds a winner with some method, drops that candidate, then repeats
 - Top-Two Runoff: does an initial count, then one with the top two winners. Default: top one, STAR: Borda
-- Sequential Runoff: counts, drops lowest scorer, repeats
+- Sequential Runoff: counts, drops lowest scorer(s), repeats
+- Variations like Nanson's, Bucklin's, and Coombs's methods
 - Single Transferable Vote (STV): like sequential runoff, but drops winners and reweights their ballots
 - CPO-STV: Comparison of Pairs of Outcomes by Single Transferable Vote
 - Schulze STV: Like above, but only comparing outcomes that differ by one candidate
 
 Condorcet methods:
 - Calculate the Condorcet matrix: preferences as one-on-one contests -- virtual round robin
+- Condorcet winner and loser, if present
+- Condorcet-Borda: Borda count implemented with the Condorcet matrix
+- Condorcet-IRV; optionally search for Condorcet winner and/or loser in sequential runoff
+- Condorcet with Fallback (Black's method): uses the Condorcet winner, or else some other method. Can use the Smith or Schwartz sets
 - Schulze beatpath
 - Copeland: reduces Condorcet matrix to winner, tie, loser entries, then adds them up
 - Minimax: finds candidate with the smallest of its maximum defeats
@@ -41,9 +46,8 @@ Condorcet methods:
 - Maximal lotteries: generalizes Condorcet winner with the help of linear programming
 
 Maximal sets:
-- Smith: smallest set of candidates that beats all others
+- Smith: smallest set of candidates that beat all others
 - Schwartz: union of sets of candidates that beat or tie all others, with no proper subset with that property
 
 Extra Methods:
 - Descending Solid Coalitions
-- Condorcet with Fallback (Black's method): uses the Condorcet winner, or else some other method. Can use the Smith or Schwartz sets
