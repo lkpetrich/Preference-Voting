@@ -85,8 +85,32 @@
 #
 # Condorcet methods
 #
+# CondorcetWinnerIndex(PrefMat)
+# Returns index if there is one, None otherwise
+#
 # CondorcetWinner(BBox)
 # Returns (True,winner) if there is one, (False,) otherwise
+#
+# CondorcetLoserIndex(PrefMat)
+# Returns index if there is one, None otherwise
+#
+# CondorcetLoser(BBox)
+# Returns (True,loser) if there is one, (False,) otherwise
+#
+# CondorcetBorda(BBox)
+# Does a version of the Borda count with the Condorcet matrix
+#
+# CondorcetWithFallback(BBox, fallback=Borda, settype="All")
+# Black's method. It tries to find the Condorcet winner,
+# and if it fails to do so, then falls back on another method
+# evaluated on some subset of the candidates: "All", "Smith", "Schwartz".
+# Returns (True, Condorcet winner) or (False, fallback-method output)
+#
+# CondorcetSequentialRunoff(BBox, CWn=False, CLs=False,
+#   ThresholdFunc=min, DoRound=TopOne):
+# Like SequentialRunoff, with the addition of
+# CWn: use the Condorcet winner
+# CLs: drop the Condorcet loser
 #
 # Schulze(BBox)
 # Schulze's beatpath method
@@ -154,6 +178,10 @@
 # Returns a sequence of maximal sets found,
 # with the previous ones removed from the ballots
 #
+# MaximalSetSequentialRunoff(BBox, Type, CWn=False, CLs=False,
+#   ThresholdFunc=min, DoRound=TopOne):
+# Like SequentialRunoff, with the addition of the type of the maximal set:
+# "Smith" or "Schwartz".
 #
 # Extra Methods
 #
@@ -162,12 +190,6 @@
 # Equivalent to Descending Acquiescing Coalitions
 # because there are no tied preferences here
 # Returns its winner(s)
-#
-# CondorcetWithFallback(BBox, fallback=Borda, settype="All")
-# Black's method. It tries to find the Condorcet winner,
-# and if it fails to do so, then falls back on another method
-# evaluated on some subset of the candidates: "All", "Smith", "Schwartz".
-# Returns (True, Condorcet winner) or (False, fallback-method output)
 
 # Turns preference numbering of candidates into an order
 # Assumes 1-based numbers
@@ -733,7 +755,6 @@ def CondorcetPrefCount(BBox,PrefCountFunction):
 	return Condorcet(BBox, lambda Cands, PrefMat: \
 		CondorcetCandPMPrefCount(Cands,PrefMat,PrefCountFunction))
 
-
 def CondorcetWinnerIndex(PrefMat):
 	n = len(PrefMat)
 	for i in xrange(n):
@@ -754,6 +775,75 @@ def CondorcetWinner(BBox):
 	else:
 		return (False,)
 	
+def CondorcetLoserIndex(PrefMat):
+	n = len(PrefMat)
+	for i in xrange(n):
+		lix = i
+		for j in xrange(n):
+			if j != i and PrefMat[i][j] >= PrefMat[j][i]:
+				lix = None
+				break
+		if lix != None: return lix
+	return None
+
+def CondorcetLoser(BBox):
+	Cands = BBox.Candidates()
+	PrefMat = BBox.CondorcetMatrix()
+	lix = CondorcetLoserIndex(PrefMat)
+	if lix != None:
+		return (True,Cands[lix])
+	else:
+		return (False,)
+
+def CondorcetBordaCount(PrefMat):
+	return tuple(map(sum,PrefMat))
+
+def CondorcetBorda(BBox): return CondorcetPrefCount(BBox,CondorcetBordaCount)
+
+# Black's method
+def CondorcetWithFallback(BBox, fallback=Borda, settype="All"):
+	cond = CondorcetWinner(BBox)
+	if cond[0]:
+		return cond
+	else:
+		if settype == "All":
+			fbblts = BBox
+		else:
+			fbblts = KeepCandidates(BBox, MaximalSet(BBox,"Smith"))
+		return (False, fallback(fbblts))
+
+def CondorcetSequentialRunoff(BBox, CWn=False, CLs=False, \
+	ThresholdFunc=min, DoRound=TopOne):
+	NewBBox = BBox
+	rounds = []
+	while len(NewBBox.Ballots) > 0:
+		if CWn:
+			condwin = CondorcetWinner(NewBBox)
+			if condwin[0]:
+				rounds.append((1,condwin[1]))
+				break
+		
+		if CLs:
+			condlose = CondorcetLoser(NewBBox)
+			if condlose[0]:
+				rounds.append((-1,condlose[1]))
+				NewBBox = RemoveCandidates(NewBBox, [condlose[1]])
+				continue
+		
+		res = DoRound(NewBBox)
+		rounds.append((0,res))
+		
+		BottomCands = []
+		VoteThreshold = ThresholdFunc([r[1] for r in res])
+		for r in res:
+			if r[1] <= VoteThreshold:
+				BottomCands.append(r[0])	
+		BottomCands.sort()
+		BottomCands = tuple(BottomCands)
+		
+		NewBBox = RemoveCandidates(NewBBox, BottomCands)
+
+	return tuple(rounds)
 
 # http://en.wikipedia.org/wiki/Schulze_method
 
@@ -1529,6 +1619,31 @@ def MaximalSetSequence(BBox, Type):
 	
 	return tuple(MaximalSets)
 
+# Tideman alternative method
+# https://en.wikipedia.org/wiki/Tideman_alternative _method
+#
+def MaximalSetSequentialRunoff(BBox, Type, ThresholdFunc=min, DoRound=TopOne):
+	NewBBox = BBox
+	rounds = []
+	while len(NewBBox.Ballots) > 0:
+		MaxSet = MaximalSet(NewBBox, Type)
+		if len(MaxSet) == 0: break
+		NewBBox = KeepCandidates(NewBBox, MaxSet)
+		
+		res = DoRound(NewBBox)
+		rounds.append(res)
+		
+		BottomCands = []
+		VoteThreshold = ThresholdFunc([r[1] for r in res])
+		for r in res:
+			if r[1] <= VoteThreshold:
+				BottomCands.append(r[0])	
+		BottomCands.sort()
+		BottomCands = tuple(BottomCands)
+		
+		NewBBox = RemoveCandidates(NewBBox, BottomCands)
+
+	return tuple(rounds)
 
 # All the subsets of a Container
 # Returns as tuple of tuples
@@ -1575,18 +1690,6 @@ def DescendingSolidCoalitions(BBox):
 	winlst = list(winset)
 	winlst.sort()
 	return tuple(winlst)
-
-# Black's method
-def CondorcetWithFallback(BBox, fallback=Borda, settype="All"):
-	cond = CondorcetWinner(BBox)
-	if cond[0]:
-		return cond
-	else:
-		if settype == "All":
-			fbblts = BBox
-		else:
-			fbblts = KeepCandidates(BBox, MaximalSet(BBox,"Smith"))
-		return (False, fallback(fbblts))
 
 #
 # For debugging
@@ -1774,6 +1877,49 @@ def DumpAll(Ballots, DoNFactorial=True):
 	print CondorcetWinner(BBox)
 	print
 	
+	print "Condorcet Loser:"
+	print CondorcetLoser(BBox)
+	print
+	
+	print "Condorcet Borda:"
+	res = CondorcetBorda(BBox)
+	for r in res: print r
+	print
+	
+	print "Black: Condorcet with Fallback"
+	res = CondorcetWithFallback(BBox)
+	print res[0]
+	if res[0]:
+		print res[1]
+	else:
+		for r in res[1]: print r
+	print
+	
+	print "Black: Condorcet with Fallback (Sequential Runoff, Smith set)"
+	res = CondorcetWithFallback(BBox,SequentialRunoff,"Smith")
+	print res[0]
+	if res[0]:
+		print res[1]
+	else:
+		for k, rx in enumerate(res[1]):
+			print "Round", k+1
+			for r in rx: print r
+	print
+	
+	print "Condorcet SR using C Winner:"
+	reslist = CondorcetSequentialRunoff(BBox,True)
+	for k, res in enumerate(reslist):
+		print "Round", k+1
+		for r in res: print r
+	print
+	
+	print "Condorcet SR dropping C Loser:"
+	reslist = CondorcetSequentialRunoff(BBox,False,True)
+	for k, res in enumerate(reslist):
+		print "Round", k+1
+		for r in res: print r
+	print
+		
 	print "Schulze Beatpath:"
 	print Schulze(BBox)
 	print
@@ -1849,19 +1995,16 @@ def DumpAll(Ballots, DoNFactorial=True):
 	print MaximalSetSequence(BBox,"Smith")
 	print MaximalSetSequence(BBox,"Schwartz")
 	print
-	
+
+	print "Smith-Set Sequential Runoff:"
+	reslist = MaximalSetSequentialRunoff(BBox,"Smith")
+	for k, res in enumerate(reslist):
+		print "Round", k+1
+		for r in res: print r
+	print
+		
 	print "Descending Solid Coalitions"
 	res = DescendingSolidCoalitions(BBox)
-	for r in res: print r
-	print
-	
-	print "Black: Condorcet with Fallback"
-	res = CondorcetWithFallback(BBox)
-	for r in res: print r
-	print
-	
-	print "Black: Condorcet with Fallback (Sequential Runoff, Smith set)"
-	res = CondorcetWithFallback(BBox,SequentialRunoff,"Smith")
 	for r in res: print r
 	print
 	
