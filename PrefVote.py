@@ -100,6 +100,13 @@
 # CondorcetBorda(BBox)
 # Does a version of the Borda count with the Condorcet matrix
 #
+# CondorcetFlipBorda(BBox)
+# Does a flipped version, with minus the transpose,
+# to rank by losing instead of winning
+#
+# CondorcetCmbnBorda(BBox)
+# Combines both of the previous ratings for sorting, winning then losing
+#
 # CondorcetWithFallback(BBox, fallback=Borda, settype="All")
 # Black's method. It tries to find the Condorcet winner,
 # and if it fails to do so, then falls back on another method
@@ -146,10 +153,14 @@
 # Minimum number of interchanges from ascending order to that permutation
 # I find that value to be (length) - (number of cycles)
 #
-# RankedPairs(BBox)
+# RankedPairs(BBox, Which="oppo")
 # Tideman's ranked-pairs method
 # Like Kemeny-Young, but with simple hill-climbing optimization
 # Returns simple list of candidates from winners to losers
+#
+# Which is like for Minimax.
+# Tideman's original method has "oppo" (the default)
+# Maximize Affirmed Majorities has "wins"
 #
 # Maximum Affirmed Majorities and Maximum Majority Voting
 # seem identical to it
@@ -798,7 +809,29 @@ def CondorcetLoser(BBox):
 def CondorcetBordaCount(PrefMat):
 	return tuple(map(sum,PrefMat))
 
-def CondorcetBorda(BBox): return CondorcetPrefCount(BBox,CondorcetBordaCount)
+def CondorcetBorda(BBox):
+	return CondorcetPrefCount(BBox,CondorcetBordaCount)
+
+def CondorcetFlipBordaCount(PrefMat):
+	n = len(PrefMat)
+	cnts = n*[0]
+	for i in xrange(n):
+		cnt = 0
+		for j in xrange(n):
+			cnt += PrefMat[j][i]
+		cnts[i] = - cnt
+	return tuple(cnts)
+
+def CondorcetFlipBorda(BBox):
+	return CondorcetPrefCount(BBox,CondorcetFlipBordaCount)
+
+def CondorcetCmbnBordaCount(PrefMat):
+	cnt1 = CondorcetBordaCount(PrefMat)
+	cnt2 = CondorcetFlipBordaCount(PrefMat)
+	return tuple(zip(cnt1,cnt2))
+
+def CondorcetCmbnBorda(BBox):
+	return CondorcetPrefCount(BBox,CondorcetCmbnBordaCount)
 
 # Black's method
 def CondorcetWithFallback(BBox, fallback=Borda, settype="All"):
@@ -913,25 +946,39 @@ def Copeland(BBox): return CondorcetPrefCount(BBox,CopelandPrefCount)
 
 # http://en.wikipedia.org/wiki/Minimax_condorcet
 
-def MinimaxPrefCount(PrefMat,Which):
+def ModifiedPrefMat(PrefMat,Which):
 	n = len(PrefMat)
+	ModMat = [n*[0] for i in xrange(n)]
 	
+	if Which == "wins":
+		for i in xrange(n):
+			for j in xrange(n):
+				if PrefMat[i][j] > PrefMat[j][i]:
+					ModMat[i][j] = PrefMat[i][j]
+				else:
+					ModMat[i][j] = 0
+	elif Which == "marg":
+		for i in xrange(n):
+			for j in xrange(n):
+				ModMat[i][j] = PrefMat[i][j] - PrefMat[j][i]
+	elif Which == "oppo":
+		for i in xrange(n):
+			for j in xrange(n):
+				ModMat[i][j] = PrefMat[i][j]
+	
+	return ModMat
+		
+
+def MinimaxPrefCount(PrefMat,Which):
+	ModMat = ModifiedPrefMat(PrefMat,Which)
+
+	n = len(PrefMat)
 	Scores = n*[0]
 	for k in xrange(n):
 		Score = None
 		for kx in xrange(n):
 			if kx == k: continue
-			
-			if Which == "wins":
-				if PrefMat[kx][k] > PrefMat[k][kx]:
-					NewScore = PrefMat[kx][k]
-				else:
-					NewScore = 0
-			elif Which == "marg":
-				NewScore = PrefMat[kx][k] - PrefMat[k][kx]
-			elif Which == "oppo":
-				NewScore = PrefMat[kx][k]
-			
+			NewScore = ModMat[kx][k]			
 			if Score == None:
 				Score = NewScore
 			elif NewScore > Score:
@@ -1098,6 +1145,8 @@ def Dodgson(BBox):
 # Uses cyclicity test in
 # http://www.cs.hmc.edu/~keller/courses/cs60/s98/examples/acyclic/
 
+# Uses the choices for modified Condorcet preference matrix in minimax
+
 def RankedPairsCompare(a,b):
 	rc = - cmp(a[2],b[2])
 	if rc != 0: return rc
@@ -1105,15 +1154,16 @@ def RankedPairsCompare(a,b):
 	rc = cmp(a[3],b[3])
 	return rc
 
-def RankedPairsPrefOrder(PrefMat):
-	n = len(PrefMat)
-
+def RankedPairsPrefOrder(PrefMat,Which):
+	ModMat = ModifiedPrefMat(PrefMat,Which)
+	
 	# Find the beat margins and sort them
+	n = len(PrefMat)
 	BeatMargins = []
 	for k1 in xrange(n):
 		for k2 in xrange(n):
 			if k2 != k1:
-				bmg = (k1, k2, PrefMat[k1][k2],PrefMat[k2][k1])
+				bmg = (k1, k2, ModMat[k1][k2], ModMat[k2][k1])
 				BeatMargins.append(bmg)
 	BeatMargins.sort(RankedPairsCompare)
 	
@@ -1168,8 +1218,8 @@ def RankedPairsPrefOrder(PrefMat):
 	CandIxs.sort(lambda a,b: -1 if (a,b) in BeatList else (0 if a == b else 1))
 	return CandIxs
 
-def RankedPairs(BBox): return CondorcetPrefOrder(BBox,RankedPairsPrefOrder)
-
+def RankedPairs(BBox, Which="oppo"):
+	return CondorcetPrefOrder(BBox, lambda BB: RankedPairsPrefOrder(BB,Which))
 
 # https://en.wikipedia.org/wiki/Maximal_lotteries
 
@@ -1737,8 +1787,8 @@ def DumpMultiWinnerAlgorithms(BBox):
 
 def DumpAll(Ballots, DoNFactorial=True):
 	BBox = BallotBox(Ballots)
-
-	# DumpSingleAlgorithm(CondorcetWithFallback,BBox); return
+	
+	# DumpSingleAlgorithm(CondorcetCmbnBorda,BBox); return
 	# DumpMultiWinnerAlgorithms(BBox); return
 	
 	print "Candidates:",
@@ -1881,8 +1931,8 @@ def DumpAll(Ballots, DoNFactorial=True):
 	print CondorcetLoser(BBox)
 	print
 	
-	print "Condorcet Borda:"
-	res = CondorcetBorda(BBox)
+	print "Condorcet Combined Borda (plain + flipped):"
+	res = CondorcetCmbnBorda(BBox)
 	for r in res: print r
 	print
 	
@@ -1951,6 +2001,10 @@ def DumpAll(Ballots, DoNFactorial=True):
 	
 	print "Tideman Ranked Pairs:"
 	print RankedPairs(BBox)
+	print
+	
+	print "Maximize Affirmed Majorities:"
+	print RankedPairs(BBox,"wins")
 	print
 	
 	print "Maximal Lotteries:"
