@@ -34,7 +34,7 @@ Multiple-round methods:
 Condorcet methods:
 - Calculate the Condorcet matrix: preferences as one-on-one contests -- virtual round robin
 - Condorcet winner and loser, if present
-- Condorcet-Borda: Borda count implemented with the Condorcet matrix
+- Condorcet-Borda: variant of the Borda count implemented with the Condorcet matrix. Has winner, loser, and combined scores
 - Condorcet-IRV; optionally search for Condorcet winner and/or loser in sequential runoff
 - Condorcet with Fallback (Black's method): uses the Condorcet winner, or else some other method. Can use the Smith or Schwartz sets
 - Schulze beatpath
@@ -43,6 +43,7 @@ Condorcet methods:
 - Kemeny-Young: goes through all permutations of candidate rankings, finds best-performance one
 - Dodgson: goes through all permutations of ballot orders, finds closest one to identity with a Condorcet winner
 - Tideman ranked pairs: assembles the best-performing ranking of candidates from the highest-ranked pairs
+- Maximize Affirmed Majorities: ranked pairs with different sorting
 - Maximal lotteries: generalizes Condorcet winner with the help of linear programming
 
 Maximal sets:
