@@ -52,10 +52,12 @@
 # DoRound results, with the winner of each one dropped from the count
 # Needs GetWinner for getting the winner from each round's results
 #
-# TopTwoRunoff(BBox, DoRound=TopOne): repeats with the top two candidates,
-# or all the candidates who got the most votes
+# TopTwoRunoff(BBox, DoFirstRound=TopOne, DoSecondRound=TopOne):
+# The first round selects the top two candidates,
+# and in the second round, they go head to head.
 #
-# For STAR voting, use Borda or some similar method for DoRound
+# For STAR voting, use Borda or some other ranks-to-ratings Method
+# in the first round.
 #
 # SequentialRunoff(BBox, ThresholdFunc=min, DoRound=TopOne):
 # repeats without the candidates who got the fewest votes,
@@ -515,9 +517,9 @@ def WinnerDropping(BBox, DoRound, GetWinner):
 # http://en.wikipedia.org/wiki/Contingent_vote
 # http://en.wikipedia.org/wiki/Two-round_system
 
-def TopTwoRunoff(BBox, DoRound=TopOne):
+def TopTwoRunoff(BBox, DoFirstRound=TopOne, DoSecondRound=TopOne):
 	rounds = []
-	res = DoRound(BBox)
+	res = DoFirstRound(BBox)
 	rounds.append(res)
 	
 	if len(res) == 0: return tuple(rounds)
@@ -535,7 +537,7 @@ def TopTwoRunoff(BBox, DoRound=TopOne):
 	TopTwoCands = tuple(TopTwoCands)
 	
 	NewBBox = KeepCandidates(BBox, TopTwoCands)
-	res = DoRound(NewBBox)
+	res = DoSecondRound(NewBBox)
 	rounds.append(res)
 
 	return tuple(rounds)
