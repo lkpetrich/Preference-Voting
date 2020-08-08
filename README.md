@@ -24,7 +24,7 @@ Rated or scored votes:
 
 Multiple-round methods:
 - Winner Dropping: finds a winner with some method, drops that candidate, then repeats
-- Top-Two Runoff: does an initial count, then one with the top two winners. Default: top one, STAR: Borda
+- Top-Two Runoff: does an initial count, then one with the top two winners. Default for both rounds: top one, STAR: Borda or similar in first round
 - Sequential Runoff: counts, drops lowest scorer(s), repeats
 - Variations like Nanson's, Bucklin's, and Coombs's methods
 - Single Transferable Vote (STV): like sequential runoff, but drops winners and reweights their ballots
