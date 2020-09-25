@@ -56,8 +56,8 @@
 # The first round selects the top two candidates,
 # and in the second round, they go head to head.
 #
-# For STAR voting, use Borda or some other ranks-to-ratings Method
-# in the first round.
+# For STAR voting, use Borda or some other ranks-to-ratings method
+# for the first round.
 #
 # SequentialRunoff(BBox, ThresholdFunc=min, DoRound=TopOne):
 # repeats without the candidates who got the fewest votes,
@@ -188,8 +188,8 @@
 # but which has no proper subset with that property
 #
 # MaximalSetSequence(BBox, Type)
-# Returns a sequence of maximal sets found,
-# with the previous ones removed from the ballots
+# Makes a sequence of maximal sets by removing them
+# from the candidates as it goes
 #
 # MaximalSetSequentialRunoff(BBox, Type, CWn=False, CLs=False,
 #   ThresholdFunc=min, DoRound=TopOne):
@@ -1605,31 +1605,18 @@ def MaximalLotteries(BBox):
 # Find the Smith and Schwartz sets
 # From https://electowiki.org/wiki/Maximal_elements_algorithms
 
-def PrefMatRelations(PrefMat, Type):
+def MaximalSetIndices(PrefMat, Type):
 	n = len(PrefMat)
-	Relations = [n*[False] for k in xrange(n)]
-	
-	for k1 in xrange(n):
-		for k2 in xrange(n):
-			if k2 != k1:
-				if Type == "Schwartz":
-					Relations[k1][k2] = PrefMat[k1][k2] > PrefMat[k2][k1]
-				elif Type == "Smith":
-					Relations[k1][k2] = PrefMat[k1][k2] >= PrefMat[k2][k1]
-	
-	return Relations
-
-
-def FloydWarshallMaximal(Relations):
-	n = len(Relations)
-	InMaximal = n*[True]
 	
 	# Init HasPath for relations with length 1
 	HasPath = [n*[False] for k in xrange(n)]
 	for k1 in xrange(n):
 		for k2 in xrange(n):
 			if k2 != k1:
-				HasPath[k1][k2] = Relations[k1][k2]
+				if Type == "Schwartz":
+					HasPath[k1][k2] = PrefMat[k1][k2] > PrefMat[k2][k1]
+				elif Type == "Smith":
+					HasPath[k1][k2] = PrefMat[k1][k2] >= PrefMat[k2][k1]
 	
 	# Consider paths with intermediate nodes from 1 to k
 	for k in xrange(n):
@@ -1642,34 +1629,59 @@ def FloydWarshallMaximal(Relations):
 	
 	# Candidates with paths to them but none to complete a cycle,
 	# they are not in the maximal set
+	InMaximal = n*[True]
 	for k1 in xrange(n):
 		for k2 in xrange(n):
 			if k2 != k1:
 				if HasPath[k2][k1] and not HasPath[k1][k2]:
 					InMaximal[k1] = False
 	
-	return InMaximal
+	# Find indices
+	return tuple((im[0] for im in zip(xrange(n),InMaximal) if im[1]))
 
 def MaximalSet(BBox, Type):
 	Cands = BBox.Candidates()
 	PrefMat = BBox.CondorcetMatrix()
 	
-	Rels = PrefMatRelations(PrefMat, Type)
-	InMax = FloydWarshallMaximal(Rels)
+	MSIxs = MaximalSetIndices(PrefMat, Type)
 	
-	return tuple((cm[0] for cm in zip(Cands,InMax) if cm[1]))
+	return tuple((Cands[ix] for ix in MSIxs))
 
-def MaximalSetSequence(BBox, Type):
-	MaximalSets = []
-	NewBBox = BBox
+def MaximalSetSequenceIndices(PrefMat, Type):
+	MSIxSeq = []
+	
+	# BaseSeq is for containing the original indices,
+	# because MaximalSetIndices finds them relative to
+	# its input's size
+	n = len(PrefMat)
+	BaseSeq = list(xrange(n))
+	PrevPrefMat = PrefMat
 	
 	while True:
-		MaxSet = MaximalSet(NewBBox, Type)
-		if len(MaxSet) == 0: break
-		MaximalSets.append(MaxSet)
-		NewBBox = RemoveCandidates(NewBBox, MaxSet)
+		# Get the set's indices and translate them into the original ones
+		MSIxs = MaximalSetIndices(PrevPrefMat, Type)
+		MSIxSeq.append(tuple((BaseSeq[i] for i in MSIxs)))
+		
+		# Find remaining indices and trim down
+		# the base indices and the preference matrix with them
+		OrigIxs = set(xrange(len(PrevPrefMat)))
+		SubIxs = set(MSIxs)
+		RmIxsSet = OrigIxs - SubIxs
+		RmIxs = list(RmIxsSet)
+		RmIxs.sort()
+		BaseSeq = [BaseSeq[i] for i in RmIxs]
+		NewPrefMat = [[PrevPrefMat[i][j] for j in RmIxs] for i in RmIxs]
+		# Any more left to do?
+		if len(NewPrefMat) == 0: break
+		PrevPrefMat = NewPrefMat
 	
-	return tuple(MaximalSets)
+	return tuple(MSIxSeq)
+
+def MaximalSetSequence(BBox, Type):
+	
+	Cands = BBox.Candidates()
+	MSIxSeq = MaximalSetSequenceIndices(BBox.CondorcetMatrix(), Type)
+	print tuple((tuple((Cands[ix] for ix in MSIxs)) for MSIxs in MSIxSeq))
 
 # Tideman alternative method
 # https://en.wikipedia.org/wiki/Tideman_alternative _method
@@ -1790,7 +1802,7 @@ def DumpMultiWinnerAlgorithms(BBox):
 def DumpAll(Ballots, DoNFactorial=True):
 	BBox = BallotBox(Ballots)
 	
-	# DumpSingleAlgorithm(CondorcetCmbnBorda,BBox); return
+	# DumpSingleAlgorithm(lambda b: MaximalSetSequence(b,"Smith"),BBox); return
 	# DumpMultiWinnerAlgorithms(BBox); return
 	
 	print "Candidates:",
