@@ -1681,7 +1681,7 @@ def MaximalSetSequence(BBox, Type):
 	
 	Cands = BBox.Candidates()
 	MSIxSeq = MaximalSetSequenceIndices(BBox.CondorcetMatrix(), Type)
-	print tuple((tuple((Cands[ix] for ix in MSIxs)) for MSIxs in MSIxSeq))
+	return tuple((tuple((Cands[ix] for ix in MSIxs)) for MSIxs in MSIxSeq))
 
 # Tideman alternative method
 # https://en.wikipedia.org/wiki/Tideman_alternative _method
