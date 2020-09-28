@@ -887,21 +887,20 @@ def SchulzeOrdering(BPMat,i,j):
 	if rc != 0: return rc
 	return cmp(i,j)
 
-def SchulzePrefOrder(PrefMat):
+def BeatpathMatrix(PrefMat):
 	n = len(PrefMat)
 	
-	# Beatpaths
+	# Initial matrix
 	BPMat = [n*[0] for k in xrange(n)]
 	
-	# Variant of Floyd-Warshall algorithm
 	for i in xrange(n):
 		for j in xrange(n):
 			if j != i:
 				if PrefMat[i][j] > PrefMat[j][i]:
 					BPMat[i][j] = PrefMat[i][j]
-				else:
-					BPMat[i][j] = 0
+			# Otherwise zero - BPMat initialized to that
 	
+	# Variant of the Floyd-Warshall algorithm
 	for i in xrange(n):
 		for j in xrange(n):
 			if j != i:
@@ -909,6 +908,14 @@ def SchulzePrefOrder(PrefMat):
 					if i != k and j != k:
 						BPMat[j][k] = \
 							max(BPMat[j][k], min(BPMat[j][i],BPMat[i][k]))
+	
+	return BPMat
+
+def SchulzePrefOrder(PrefMat):
+	n = len(PrefMat)
+	
+	# Beatpaths
+	BPMat = BeatpathMatrix(PrefMat)
 	
 	Ordering = range(n)
 	Ordering.sort(lambda i,j: SchulzeOrdering(BPMat,i,j))
