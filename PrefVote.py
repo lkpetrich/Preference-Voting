@@ -887,6 +887,19 @@ def SchulzeOrdering(BPMat,i,j):
 	if rc != 0: return rc
 	return cmp(i,j)
 
+def OrderingMatrix(n, ordf):
+	return tuple(( tuple(( ordf(i,j) for j in xrange(n) )) for i in xrange(n) ))
+
+def ListOrderFromMatrix(ordmat):
+	n = len(ordmat)
+	Ordering = range(n)
+	Ordering.sort(lambda i,j: ordmat[i][j])
+	return tuple(Ordering)
+
+def ListOrderFromMatFunc(n, ordf):
+	ordmat = OrderingMatrix(n, ordf)
+	return ListOrderFromMatrix(ordmat)
+
 def BeatpathMatrix(PrefMat):
 	n = len(PrefMat)
 	
@@ -917,9 +930,8 @@ def SchulzePrefOrder(PrefMat):
 	# Beatpaths
 	BPMat = BeatpathMatrix(PrefMat)
 	
-	Ordering = range(n)
-	Ordering.sort(lambda i,j: SchulzeOrdering(BPMat,i,j))
-	return Ordering
+	# Sorted List
+	return ListOrderFromMatFunc(n, lambda i,j: SchulzeOrdering(BPMat,i,j))
 
 def Schulze(BBox): return CondorcetPrefOrder(BBox,SchulzePrefOrder)
 
@@ -1163,7 +1175,16 @@ def RankedPairsCompare(a,b):
 	rc = cmp(a[3],b[3])
 	return rc
 
-def RankedPairsPrefOrder(PrefMat,Which):
+def RankedPairsOrdering(BeatList,i,j):
+	if (i,j) in BeatList:
+		rc = -1
+	elif (j,i) in BeatList:
+		rc = 1
+	else:
+		rc = cmp(i,j)
+	return rc
+
+def RankedPairsPrefOrderOriginal(PrefMat,Which="oppo"):
 	ModMat = ModifiedPrefMat(PrefMat,Which)
 	
 	# Find the beat margins and sort them
@@ -1223,9 +1244,98 @@ def RankedPairsPrefOrder(PrefMat,Which):
 		if len(BLX) == 0:
 			BeatList.append(bd)
 	
-	CandIxs = range(n)
-	CandIxs.sort(lambda a,b: -1 if (a,b) in BeatList else (0 if a == b else 1))
-	return CandIxs
+	return ListOrderFromMatFunc(n, \
+		lambda i,j: RankedPairsOrdering(BeatList,i,j))
+
+# With depth-first searching
+# Algorithm trimmed down to check only each candidate pair
+
+def RankedPairsPrefOrder(PrefMat,Which="oppo"):
+	ModMat = ModifiedPrefMat(PrefMat,Which)
+	
+	# Find the beat margins and sort them
+	n = len(PrefMat)
+	BeatMargins = []
+	for k1 in xrange(n):
+		for k2 in xrange(n):
+			if k2 != k1:
+				bmg = (k1, k2, ModMat[k1][k2], ModMat[k2][k1])
+				BeatMargins.append(bmg)
+	BeatMargins.sort(RankedPairsCompare)
+	
+	# Depth-first setup:
+	# Use iteration and an explicit stack rather than recursion
+	# In the search stack:
+	#   Candidate
+	#   Position in list of next candidates
+	# List of next candidates for each candidate
+	CandSeq = n*[0]
+	CandSeqPos = n*[0]
+	NextCand = [[] for i in xrange(n)]
+	
+	# Force initialization
+	ix = -1
+	
+	# Find the beat list of what beats what
+	BeatList = []
+	for bmg in BeatMargins:
+		# Initial and final candidates of a pair
+		(bd0, bd1) = bmg[:2]
+		
+		# Starting?
+		if ix < 0:
+			ix = 0
+			CandSeq[ix] = 0
+			CandSeqPos[ix] = 0
+			NextCand[bd0].append(bd1)
+			continue
+			
+		# Continuing
+		
+		# Initial state:
+		# Use final candidate of pair
+		ix = 0
+		CandSeq[ix] = bd1
+		CandSeqPos[ix] = 0
+		
+		# Add it unless we find that it causes a cycle	
+		AddPair = True
+			
+		while True:
+			# Check on whether one has found a cycle
+			cd = CandSeq[ix]
+			if cd == bd0:
+				# Found a cycle
+				AddPair = False
+				break
+			
+			# Where to go next?
+			nxtcds = NextCand[cd]
+			nix = CandSeqPos[ix]
+			if nix < len(nxtcds):
+				# Advance to next candidate
+				ix += 1
+				CandSeq[ix] = nxtcds[nix]
+				CandSeqPos[ix] = 0
+			else:
+				# Back up
+				# If not possible, then the search is finished
+				if ix <= 0: break
+				ix -= 1
+				CandSeqPos[ix] += 1
+		
+		# The pair does not create a cycle,
+		# so we go ahead with it
+		if AddPair:
+			NextCand[bd0].append(bd1)
+	
+	OrdMat = [n*[0] for i in xrange(n)]
+	for c0,clst in enumerate(NextCand):
+		for c1 in clst:
+			OrdMat[c0][c1] = -1
+			OrdMat[c1][c0] = 1
+	
+	return ListOrderFromMatrix(OrdMat)
 
 def RankedPairs(BBox, Which="oppo"):
 	return CondorcetPrefOrder(BBox, lambda BB: RankedPairsPrefOrder(BB,Which))
@@ -1805,6 +1915,7 @@ def DumpMultiWinnerAlgorithms(BBox):
 		print SchulzeSTV(BBox,Num)
 		print
 
+import time
 
 def DumpAll(Ballots, DoNFactorial=True):
 	BBox = BallotBox(Ballots)
