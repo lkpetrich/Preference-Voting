@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!python3
 #
 # Example from
 # Voting Systems and the Condorcet Paradox | Infinite Series - YouTube

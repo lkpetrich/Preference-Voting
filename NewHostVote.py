@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!python3
 #
 # Does preference voting on web hosts, working from various reviews of them
 
@@ -88,13 +88,13 @@ def BrdTrim(x): return x[0]
 def SRWinner(x): return x[-1][0][0]
 
 def Eval(BBox):
-	print
+	print()
 	r1 = map(SRWinner, WinnerDropping(BBox, SequentialRunoff, SRWinner))
 	r2 = map(BrdTrim,Borda(BBox))
 	r3 = Schulze(BBox)
 	res = zip(r1,r2, r3)
-	for r in res: print r
+	for r in res: print(r)
 
-print "('IRV Seq','Borda','Schulze')"
+print("('IRV Seq','Borda','Schulze')")
 Eval(BBoxAll)
 Eval(BBoxFrq)

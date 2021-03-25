@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!python3
 #
 # For doing various preference-based voting algorithms
 # From individual preferences, it finds overall preferences with various algorithms
@@ -248,7 +248,7 @@ def CondorcetMatrix(self):
 	if self._CondorcetMatrix == None:
 		Cands = self.Candidates()
 		NumCands = len(Cands)
-		self._CondorcetMatrix = [NumCands*[0] for k in xrange(NumCands)]
+		self._CondorcetMatrix = [NumCands*[0] for k in range(NumCands)]
 		
 		CandIndices = {}
 		for k, Cand in enumerate(Cands):
@@ -266,8 +266,8 @@ def CondorcetMatrix(self):
 			
 			# First index: winner
 			# Second index: loser
-			for k1 in xrange(NumCands):
-				for k2 in xrange(NumCands):
+			for k1 in range(NumCands):
+				for k2 in range(NumCands):
 					if Ranks[k1] > Ranks[k2]:
 						self._CondorcetMatrix[k1][k2] += Weight
 	
@@ -322,13 +322,17 @@ def TotalCount(BBox):
 		Count += Ballot[0]
 	return Count
 
+# Threads negation over a list if need be
+def negate(x):
+	if hasattr(x,'__iter__'):
+		return tuple(map(negate,x))
+	else:
+		return -x
 
-# a and b are (Cand, Count)
+# x is (Cand, Count / List of Counts)
 # Sort reverse by count, then forward by cand
-def CCSortFunction(a,b):
-	rc = - cmp(a[1],b[1])
-	if rc != 0: return rc
-	return cmp(a[0],b[0])
+def CCSortFunction(x):
+	return (negate(x[1]),x[0])
 
 # Generic count function
 # Args:
@@ -348,8 +352,8 @@ def BBoxCounter(BBox, CountFunction):
 		CountFunction(Counts, Ballot[0], Ballot[1], Cands)
 	
 	CountList = [Counts[Cand] for Cand in Cands]
-	CandCounts =  zip(Cands,CountList)
-	CandCounts.sort(CCSortFunction)
+	CandCounts = list(zip(Cands,CountList))
+	CandCounts.sort(key=CCSortFunction)
 	return tuple(CandCounts)
 
 
@@ -386,7 +390,7 @@ def MinusBottom(BBox):
 
 def TopNumFunction(Counts, Weight, Votes, Cands, Num):
 	NumAdj = min(len(Votes),Num)
-	for k in xrange(NumAdj):
+	for k in range(NumAdj):
 		Counts[Votes[k]] += Weight
 
 def TopNum(BBox,Num):
@@ -395,7 +399,7 @@ def TopNum(BBox,Num):
 def TopNumList(BBox):
 	Cands = BBox.Candidates()
 	NumCands = len(Cands)
-	return tuple((TopNum(BBox,k+1) for k in xrange(NumCands)))
+	return tuple((TopNum(BBox,k+1) for k in range(NumCands)))
 
 
 # Rank counting
@@ -446,7 +450,7 @@ def Dowdall(BBox):
 def WeightedMedian(wtrnks):
 	# Sort by ranks and find cumulative weights
 	wrsort = list(wtrnks)
-	wrsort.sort(lambda a,b: cmp(a[0],b[0]))
+	wrsort.sort(key=lambda x: x[0])
 	
 	totwt = 0
 	cwtrks = []
@@ -463,7 +467,7 @@ def WeightedMedian(wtrnks):
 	# and rkcnt (count of ranks).
 	rksum = 0.; rkcnt = 0
 	n = len(cwtrks)
-	for k in xrange(n):
+	for k in range(n):
 		addmdn = cwtrks[k][1] <= hftot
 		if addmdn:
 			if k < n-1:
@@ -499,7 +503,7 @@ def MajorityJudgment(BBox):
 	
 	CandWMs = [(Cand, WeightedMedian(CandRankLists[Cand])) for Cand in Cands]
 	
-	CandWMs.sort(CCSortFunction)
+	CandWMs.sort(key=CCSortFunction)
 	return tuple(CandWMs)
 
 
@@ -629,11 +633,11 @@ def SingleTransferableVote(BBox, Num):
 # of a range of integers from 0 to rnglen-1
 def RangeSubsets(rnglen, sslen):
 	RSS = [[]]
-	for ns in xrange(sslen):
+	for ns in range(sslen):
 		NewRSS = []
 		for SS in RSS:
 			base = max(SS)+1 if len(SS) > 0 else 0
-			for k in xrange(base,rnglen-sslen+ns+1):
+			for k in range(base,rnglen-sslen+ns+1):
 				NewSS = SS + [k]
 				NewRSS.append(NewSS)
 		RSS = NewRSS
@@ -655,13 +659,13 @@ def CPOSTVMatrix(BBox, Num):
 	CandPosses = ListSubsets(Cands,Num)
 	
 	ncp = len(CandPosses)
-	CprMat = [ncp*[0] for k in xrange(ncp)]
+	CprMat = [ncp*[0] for k in range(ncp)]
 	
 	CS = set(Cands)
-	for k1 in xrange(ncp-1):
+	for k1 in range(ncp-1):
 		Cands1 = CandPosses[k1]
 		CS1 = set(Cands1)
-		for k2 in xrange(k1+1,ncp):
+		for k2 in range(k1+1,ncp):
 			Cands2 = CandPosses[k2]
 			CS2 = set(Cands2)
 			InBoth = CS1 & CS2
@@ -715,14 +719,14 @@ def SchulzeSTVMatrix(BBox,Num):
 	CandPosses = ListSubsets(Cands,Num)
 	
 	# Turn into sets for convenience
-	CandPossSets = map(set,CandPosses)
+	CandPossSets = list(map(set,CandPosses))
 	
 	# Find the score of each set relative to each other set
 	ncp = len(CandPosses)
-	ScoreMat = [ncp*[0] for k in xrange(ncp)]
-	for i in xrange(ncp):
+	ScoreMat = [ncp*[0] for k in range(ncp)]
+	for i in range(ncp):
 		CPOrig = CandPosses[i]
-		for j in xrange(ncp):
+		for j in range(ncp):
 			scnddiff = list(CandPossSets[j] - CandPossSets[i])
 			if len(scnddiff) != 1: continue
 			sdval = scnddiff[0]
@@ -760,8 +764,8 @@ def CondorcetPrefOrder(BBox,PrefOrderFunction):
 
 def CondorcetCandPMPrefCount(Cands,PrefMat,PrefCountFunction):
 	PrefCount = PrefCountFunction(PrefMat)
-	CandCounts = zip(Cands, PrefCount)
-	CandCounts.sort(CCSortFunction)
+	CandCounts = list(zip(Cands, PrefCount))
+	CandCounts.sort(key=CCSortFunction)
 	return tuple(CandCounts)
 
 def CondorcetPrefCount(BBox,PrefCountFunction):
@@ -770,9 +774,9 @@ def CondorcetPrefCount(BBox,PrefCountFunction):
 
 def CondorcetWinnerIndex(PrefMat):
 	n = len(PrefMat)
-	for i in xrange(n):
+	for i in range(n):
 		wix = i
-		for j in xrange(n):
+		for j in range(n):
 			if j != i and PrefMat[i][j] <= PrefMat[j][i]:
 				wix = None
 				break
@@ -790,9 +794,9 @@ def CondorcetWinner(BBox):
 	
 def CondorcetLoserIndex(PrefMat):
 	n = len(PrefMat)
-	for i in xrange(n):
+	for i in range(n):
 		lix = i
-		for j in xrange(n):
+		for j in range(n):
 			if j != i and PrefMat[i][j] >= PrefMat[j][i]:
 				lix = None
 				break
@@ -817,9 +821,9 @@ def CondorcetBorda(BBox):
 def CondorcetFlipBordaCount(PrefMat):
 	n = len(PrefMat)
 	cnts = n*[0]
-	for i in xrange(n):
+	for i in range(n):
 		cnt = 0
-		for j in xrange(n):
+		for j in range(n):
 			cnt += PrefMat[j][i]
 		cnts[i] = - cnt
 	return tuple(cnts)
@@ -882,42 +886,43 @@ def CondorcetSequentialRunoff(BBox, CWn=False, CLs=False, \
 
 # http://en.wikipedia.org/wiki/Schulze_method
 
-def SchulzeOrdering(BPMat,i,j):
-	rc = - cmp(BPMat[i][j],BPMat[j][i])
-	if rc != 0: return rc
-	return cmp(i,j)
-
 def OrderingMatrix(n, ordf):
-	return tuple(( tuple(( ordf(i,j) for j in xrange(n) )) for i in xrange(n) ))
+	return tuple(( tuple(( ordf(i,j) for j in range(n) )) for i in range(n) ))
 
 def ListOrderFromMatrix(ordmat):
 	n = len(ordmat)
-	Ordering = range(n)
-	Ordering.sort(lambda i,j: ordmat[i][j])
-	return tuple(Ordering)
-
-def ListOrderFromMatFunc(n, ordf):
-	ordmat = OrderingMatrix(n, ordf)
-	return ListOrderFromMatrix(ordmat)
+	ixskeys = []
+	for i in range(n):
+		keyval = 0
+		for j in range(n):
+			omdiff = ordmat[i][j] - ordmat[j][i]
+			if omdiff > 0:
+				keyval += 1
+			elif omdiff < 0:
+				keyval -= 1
+		ixskeys.append( (i,keyval) )
+	
+	ixskeys.sort(key=lambda x: x[1])
+	return tuple( (x[0] for x in ixskeys) )
 
 def BeatpathMatrix(PrefMat):
 	n = len(PrefMat)
 	
 	# Initial matrix
-	BPMat = [n*[0] for k in xrange(n)]
+	BPMat = [n*[0] for k in range(n)]
 	
-	for i in xrange(n):
-		for j in xrange(n):
+	for i in range(n):
+		for j in range(n):
 			if j != i:
 				if PrefMat[i][j] > PrefMat[j][i]:
 					BPMat[i][j] = PrefMat[i][j]
 			# Otherwise zero - BPMat initialized to that
 	
 	# Variant of the Floyd-Warshall algorithm
-	for i in xrange(n):
-		for j in xrange(n):
+	for i in range(n):
+		for j in range(n):
 			if j != i:
-				for k in xrange(n):
+				for k in range(n):
 					if i != k and j != k:
 						BPMat[j][k] = \
 							max(BPMat[j][k], min(BPMat[j][i],BPMat[i][k]))
@@ -931,7 +936,7 @@ def SchulzePrefOrder(PrefMat):
 	BPMat = BeatpathMatrix(PrefMat)
 	
 	# Sorted List
-	return ListOrderFromMatFunc(n, lambda i,j: SchulzeOrdering(BPMat,i,j))
+	return ListOrderFromMatrix(BPMat)
 
 def Schulze(BBox): return CondorcetPrefOrder(BBox,SchulzePrefOrder)
 
@@ -953,13 +958,18 @@ def SchulzeSTV(BBox, Num): return SortWithSchulze(SchulzeSTVMatrix(BBox, Num))
 
 # http://en.wikipedia.org/wiki/Copeland%27s_method
 
+def compare(x,y):
+	if x < y: return -1
+	elif x > y: return 1
+	else: return 0
+
 def CopelandPrefCount(PrefMat):
 	n = len(PrefMat)
 	
 	Count = n*[0]
-	for k1 in xrange(n):
-		for k2 in xrange(n):
-			Count[k1] += cmp(PrefMat[k1][k2],PrefMat[k2][k1])
+	for k1 in range(n):
+		for k2 in range(n):
+			Count[k1] += compare(PrefMat[k1][k2],PrefMat[k2][k1])
 	
 	return Count
 
@@ -969,22 +979,22 @@ def Copeland(BBox): return CondorcetPrefCount(BBox,CopelandPrefCount)
 
 def ModifiedPrefMat(PrefMat,Which):
 	n = len(PrefMat)
-	ModMat = [n*[0] for i in xrange(n)]
+	ModMat = [n*[0] for i in range(n)]
 	
 	if Which == "wins":
-		for i in xrange(n):
-			for j in xrange(n):
+		for i in range(n):
+			for j in range(n):
 				if PrefMat[i][j] > PrefMat[j][i]:
 					ModMat[i][j] = PrefMat[i][j]
 				else:
 					ModMat[i][j] = 0
 	elif Which == "marg":
-		for i in xrange(n):
-			for j in xrange(n):
+		for i in range(n):
+			for j in range(n):
 				ModMat[i][j] = PrefMat[i][j] - PrefMat[j][i]
 	elif Which == "oppo":
-		for i in xrange(n):
-			for j in xrange(n):
+		for i in range(n):
+			for j in range(n):
 				ModMat[i][j] = PrefMat[i][j]
 	
 	return ModMat
@@ -995,9 +1005,9 @@ def MinimaxPrefCount(PrefMat,Which):
 
 	n = len(PrefMat)
 	Scores = n*[0]
-	for k in xrange(n):
+	for k in range(n):
 		Score = None
-		for kx in xrange(n):
+		for kx in range(n):
 			if kx == k: continue
 			NewScore = ModMat[kx][k]			
 			if Score == None:
@@ -1034,13 +1044,13 @@ def Permutations(data):
 		# Find the next permutation
 		# Quit if not possible
 		ix0 = None
-		for k in xrange(n-1):
+		for k in range(n-1):
 			if perm[k] < perm[k+1]:
 				ix0 = k
 		if ix0 == None: break
 		
 		ix1 = ix0+1
-		for k in xrange(ix0+1,n):
+		for k in range(ix0+1,n):
 			if perm[ix0] < perm[k]:
 				ix1 = k
 		
@@ -1048,7 +1058,7 @@ def Permutations(data):
 		perm[ix0] = perm[ix1]
 		perm[ix1] = temp
 		
-		for k in xrange(ix0+1,n):
+		for k in range(ix0+1,n):
 			kr = (ix0+n) - k
 			if kr <= k: break
 			temp = perm[k]
@@ -1067,8 +1077,8 @@ def KemenyYoungPrefOrder(PrefMat):
 	
 	for perm in Permutations(startperm):
 		score = 0
-		for k1 in xrange(n-1):
-			for k2 in xrange(k1+1,n):
+		for k1 in range(n-1):
+			for k2 in range(k1+1,n):
 				score += PrefMat[perm[k1]][perm[k2]]
 		if bestscore == None:
 			bestperm = tuple(perm)
@@ -1090,7 +1100,7 @@ def PermCycles(perm):
 	Avail = n*[True]
 	Cycles = []
 	
-	for i in xrange(n):
+	for i in range(n):
 		if not Avail[i]: continue
 		# Start a cycle
 		CycleBegin = i
@@ -1112,10 +1122,8 @@ def PermCycles(perm):
 
 # https://en.wikipedia.org/wiki/Dodgson's_method
 
-def CDLSortFunc(a,b):
-	rc = cmp(a[1],b[1])
-	if rc != 0: return rc
-	return cmp(a[0],b[0])
+def CDLSortFunc(x):
+	return (x[1],x[0])
 
 def Dodgson(BBox):
 	# Get the ballots
@@ -1158,7 +1166,7 @@ def Dodgson(BBox):
 				CandDists[Cand] = permdist
 	
 	CDList = [(Cand, CandDists[Cand]) for Cand in Cands]
-	CDList.sort(CDLSortFunc)
+	CDList.sort(key=CDLSortFunc)
 	return tuple(CDList)
 
 
@@ -1168,12 +1176,8 @@ def Dodgson(BBox):
 
 # Uses the choices for modified Condorcet preference matrix in minimax
 
-def RankedPairsCompare(a,b):
-	rc = - cmp(a[2],b[2])
-	if rc != 0: return rc
-	
-	rc = cmp(a[3],b[3])
-	return rc
+def RankedPairsCompare(x):
+	return (-x[2],x[3])
 
 def RankedPairsOrdering(BeatList,i,j):
 	if (i,j) in BeatList:
@@ -1190,8 +1194,8 @@ def RankedPairsPrefOrderOriginal(PrefMat,Which="oppo"):
 	# Find the beat margins and sort them
 	n = len(PrefMat)
 	BeatMargins = []
-	for k1 in xrange(n):
-		for k2 in xrange(n):
+	for k1 in range(n):
+		for k2 in range(n):
 			if k2 != k1:
 				bmg = (k1, k2, ModMat[k1][k2], ModMat[k2][k1])
 				BeatMargins.append(bmg)
@@ -1223,7 +1227,7 @@ def RankedPairsPrefOrderOriginal(PrefMat,Which="oppo"):
 			# What is present on only one side?
 			RemoveLeft = []
 			RemoveRight = []
-			for k in xrange(n):
+			for k in range(n):
 				if NumLeft[k] > 0 and NumRight[k] == 0:
 					RemoveLeft.append(k)
 				if NumLeft[k] == 0 and NumRight[k] > 0:
@@ -1256,12 +1260,12 @@ def RankedPairsPrefOrder(PrefMat,Which="oppo"):
 	# Find the beat margins and sort them
 	n = len(PrefMat)
 	BeatMargins = []
-	for k1 in xrange(n):
-		for k2 in xrange(n):
+	for k1 in range(n):
+		for k2 in range(n):
 			if k2 != k1:
 				bmg = (k1, k2, ModMat[k1][k2], ModMat[k2][k1])
 				BeatMargins.append(bmg)
-	BeatMargins.sort(RankedPairsCompare)
+	BeatMargins.sort(key=RankedPairsCompare)
 	
 	# Depth-first setup:
 	# Use iteration and an explicit stack rather than recursion
@@ -1271,7 +1275,7 @@ def RankedPairsPrefOrder(PrefMat,Which="oppo"):
 	# List of next candidates for each candidate
 	CandSeq = n*[0]
 	CandSeqPos = n*[0]
-	NextCand = [[] for i in xrange(n)]
+	NextCand = [[] for i in range(n)]
 	
 	# Force initialization
 	ix = -1
@@ -1329,7 +1333,7 @@ def RankedPairsPrefOrder(PrefMat,Which="oppo"):
 		if AddPair:
 			NextCand[bd0].append(bd1)
 	
-	OrdMat = [n*[0] for i in xrange(n)]
+	OrdMat = [n*[0] for i in range(n)]
 	for c0,clst in enumerate(NextCand):
 		for c1 in clst:
 			OrdMat[c0][c1] = -1
@@ -1349,16 +1353,16 @@ def RankedPairs(BBox, Which="oppo"):
 def SolveLinearEquations(mat):
 	n = len(mat)
 	nx = len(mat[0])
-	workmat = [[float(mat[i][j]) for j in xrange(nx)] for i in xrange(n)]
+	workmat = [[float(mat[i][j]) for j in range(nx)] for i in range(n)]
 	
 	# Do forward substitution
-	for icol in xrange(n):
+	for icol in range(n):
 		# Necessary to exchange rows
 		# to bring a nonzero value into position?
 		# Return None if singular
 		if workmat[icol][icol] == 0:
 			ipvt = None
-			for i in xrange(icol+1,n):
+			for i in range(icol+1,n):
 				if workmat[i][icol] != 0:
 					ipvt = i
 					break
@@ -1369,26 +1373,26 @@ def SolveLinearEquations(mat):
 		# Make diagonal 1:
 		wmicol = workmat[icol]
 		dgvrecip = 1/wmicol[icol]
-		for i in xrange(icol,nx):
+		for i in range(icol,nx):
 			wmicol[i] *= dgvrecip
 		# Forward substitute:
-		for i in xrange(icol+1,n):
+		for i in range(icol+1,n):
 			wmi = workmat[i]
 			elimval = wmi[icol]
-			for j in xrange(icol,nx):
+			for j in range(icol,nx):
 				wmi[j] -= elimval*wmicol[j]
 	
 	# Do back substitution
-	for icol in xrange(n-1,0,-1):
+	for icol in range(n-1,0,-1):
 		wmicol = workmat[icol]
-		for i in xrange(icol):
+		for i in range(icol):
 			wmi = workmat[i]
 			elimval = wmi[icol]
-			for j in xrange(icol,nx):
+			for j in range(icol,nx):
 				wmi[j] -= elimval*wmicol[j]
 	
 	# Done!
-	return [[workmat[i][j] for j in xrange(n,nx)] for i in xrange(n)]
+	return [[workmat[i][j] for j in range(n,nx)] for i in range(n)]
 
 def LP_SimplexMethodStep(basvars, tableau):
 	nrows = len(tableau)
@@ -1397,7 +1401,7 @@ def LP_SimplexMethodStep(basvars, tableau):
 	# Find pivot column
 	pvcol = -1
 	objf = tableau[0]
-	for k in xrange(ncols-1):
+	for k in range(ncols-1):
 		newval = objf[k]
 		if pvcol < 0:
 			pvcol = k
@@ -1411,7 +1415,7 @@ def LP_SimplexMethodStep(basvars, tableau):
 	
 	# Find pivot row
 	pvrow = -1
-	for k in xrange(1,nrows):
+	for k in range(1,nrows):
 		dvsr = tableau[k][pvcol]
 		if dvsr > 0:
 			newval = tableau[k][-1]/dvsr
@@ -1428,24 +1432,24 @@ def LP_SimplexMethodStep(basvars, tableau):
 	
 	xrow = tableau[pvrow]
 	xrc = xrow[pvcol]
-	for k in xrange(ncols):
+	for k in range(ncols):
 		xrow[k] /= xrc
-	for j in xrange(nrows):
+	for j in range(nrows):
 		if j == pvrow: continue
 		yrow = tableau[j]
 		yrc = yrow[pvcol]
-		for k in xrange(ncols):
+		for k in range(ncols):
 			yrow[k] -= yrc*xrow[k]
 	
 	# Fix the numerical values
-	for k in xrange(nrows):
+	for k in range(nrows):
 		tableau[j][pvcol] = 1. if k == pvrow else 0.
 	
 	# Make approximate cancellations exact
 	objf = tableau[0]
 	objfmax = max(max(objf),-min(objf))
 	eps = (1e-12)*objfmax
-	for k in xrange(ncols-2):
+	for k in range(ncols-2):
 		if abs(objf[k]) <= eps: objf[k] = 0.
 	
 	return (True,"Successful Step")
@@ -1459,14 +1463,14 @@ def LP_SimplexMethodSeq(basvars, tableau):
 def LP_SimplexMethod(tableau_):
 	nrows = len(tableau_)
 	ncols = len(tableau_[0])
-	tableau = [[float(tableau_[i][j]) for j in xrange(ncols)] for i in xrange(nrows)]
+	tableau = [[float(tableau_[i][j]) for j in range(ncols)] for i in range(nrows)]
 	
 	basvars = nrows*[-1]
 	basvars[0] = ncols-2
 	allzero = False
-	for i in xrange(ncols-2):
+	for i in range(ncols-2):
 		numnz = 0
-		for j in xrange(1,nrows):
+		for j in range(1,nrows):
 			val = tableau[j][i]
 			if val != 0:
 				numnz += 1
@@ -1485,7 +1489,7 @@ def LP_SimplexMethod(tableau_):
 	# Find the nonzero variables, all but the final slack variable
 	basvars = [b for b in basvars[1:] if b >= 0]
 	objf = tableau[0]
-	nzvrixs = [k for k in xrange(ncols-2) if objf[k] == 0]
+	nzvrixs = [k for k in range(ncols-2) if objf[k] == 0]
 	nzvrdiff = list(set(nzvrixs) - set(basvars))
 	nzvrdiff.sort()
 	nzvrixs = basvars + nzvrdiff
@@ -1496,23 +1500,23 @@ def LP_SimplexMethod(tableau_):
 	
 	# Solve a system of linear equations by
 	# Gaussian elimination with pivoting
-	slmat = [nrows*[0] for k in xrange(nrows-1)]
-	for j in xrange(nrows-1):
+	slmat = [nrows*[0] for k in range(nrows-1)]
+	for j in range(nrows-1):
 		slmrow = slmat[j]
 		tblrow = tableau[j+1]
-		for k in xrange(nrows-1):
+		for k in range(nrows-1):
 			slmrow[k] = tblrow[nzvrixs[k]]
-	for k in xrange(nrows-1):
+	for k in range(nrows-1):
 		slmat[k][-1] = tableau[k+1][-1]
 	res = SolveLinearEquations(slmat)
 	
 	vals = (ncols-1)*[0]
-	for k in xrange(nrows-1):
+	for k in range(nrows-1):
 		vals[nzvrixs[k]] = res[k][0]
 	
 	# Solve for the final slack variable
 	vsum = objf[ncols-1]
-	for k in xrange(ncols-2):
+	for k in range(ncols-2):
 		vsum -= objf[k]*vals[k]
 	vals[ncols-2] = vsum/objf[ncols-2]
 	
@@ -1524,13 +1528,13 @@ def MaximalLotteriesPrefCount_Simplex(PrefMat):
 	
 	if n == 0: return ()
 	
-	tableau = [(2*n+3)*[0] for k in xrange(n+2)]
+	tableau = [(2*n+3)*[0] for k in range(n+2)]
 	
-	for i in xrange(n):
-		for j in xrange(n):
+	for i in range(n):
+		for j in range(n):
 			tableau[i+2][j] = PrefMat[i][j] - PrefMat[j][i]
 	
-	for i in xrange(n):
+	for i in range(n):
 		tableau[1][i] = 1
 		tableau[i+2][n] = 1
 		tableau[i+2][i+n+1] = 1
@@ -1554,10 +1558,10 @@ def MultMatVec(mat,vec):
 	n = len(vec)
 	
 	res = n*[0]
-	for i in xrange(n):
+	for i in range(n):
 		mr = mat[i]
 		s = 0
-		for j in xrange(n):
+		for j in range(n):
 			s += mr[j]*vec[j]
 		res[i] = s
 
@@ -1565,7 +1569,7 @@ def MultMatVec(mat,vec):
 
 def LineCalc(pt,dst,dir):
 	n = len(pt)
-	return [pt[i] + dst*dir[i] for i in xrange(n)]
+	return [pt[i] + dst*dir[i] for i in range(n)]
 
 def FixScores(Scores):
 	NewScores = [max(s,0) for s in Scores]
@@ -1599,7 +1603,7 @@ def MaximalLotteriesPrefCount_RandomSearch(PrefMat):
 		return Scores
 	
 	# Preference matrix minus its transpose
-	PMAS = [[PrefMat[j][i] - PrefMat[i][j] for j in xrange(n)] for i in xrange(n)]
+	PMAS = [[PrefMat[j][i] - PrefMat[i][j] for j in range(n)] for i in range(n)]
 	
 	# Initial point: place in the center of the allowed region
 	# It may or may not be allowed by the preference-matrix constraints
@@ -1618,27 +1622,27 @@ def MaximalLotteriesPrefCount_RandomSearch(PrefMat):
 	import random
 	
 	# Try several overall runs
-	for iterrpt in xrange(mlitrrpt):
+	for iterrpt in range(mlitrrpt):
 
 		# Start a point
 		NewPosScores = Scores
 		NewPosCstrMin = CstrMin
 		
 		# Iterate over advancement steps
-		for iterpos in xrange(mlitrpos):
+		for iterpos in range(mlitrpos):
 			
 			# Start a direction search
 			NewDirScores = NewPosScores
 			NewDirCstrMin = NewPosCstrMin
 		
 			# Iterate over directions
-			for iterdir in xrange(mlitrdir):
+			for iterdir in range(mlitrdir):
 				
 				# Find a random direction
 				# Be sure that no component is zero
-				Dir = [random.gauss(0,1) for i in xrange(n)]
+				Dir = [random.gauss(0,1) for i in range(n)]
 				DirAvg = sum(Dir)/n
-				Dir = [Dir[i] - DirAvg for i in xrange(n)]
+				Dir = [Dir[i] - DirAvg for i in range(n)]
 				for d in Dir:
 					if d == 0: continue
 				
@@ -1646,7 +1650,7 @@ def MaximalLotteriesPrefCount_RandomSearch(PrefMat):
 				# by the scores being nonnegative and adding up to 1
 				PMin = None
 				PMax = None
-				for i in xrange(n):
+				for i in range(n):
 					if Dir[i] >= 0:
 						NMin = - NewPosScores[i]/Dir[i]
 						NMax = (1 - NewPosScores[i])/Dir[i]
@@ -1666,7 +1670,7 @@ def MaximalLotteriesPrefCount_RandomSearch(PrefMat):
 				# Do a line search between these points
 				LSDivs = mldvsrch
 				LSDRcp = 1./LSDivs
-				for i in xrange(0,LSDivs+1):
+				for i in range(0,LSDivs+1):
 					Dst = PMin + (PMax - PMin)*LSDRcp*i
 					NewSrchScores = FixScores(LineCalc(NewPosScores, Dst, Dir))
 					CstrVals = MultMatVec(PMAS,NewSrchScores)
@@ -1726,9 +1730,9 @@ def MaximalSetIndices(PrefMat, Type):
 	n = len(PrefMat)
 	
 	# Init HasPath for relations with length 1
-	HasPath = [n*[False] for k in xrange(n)]
-	for k1 in xrange(n):
-		for k2 in xrange(n):
+	HasPath = [n*[False] for k in range(n)]
+	for k1 in range(n):
+		for k2 in range(n):
 			if k2 != k1:
 				if Type == "Schwartz":
 					HasPath[k1][k2] = PrefMat[k1][k2] > PrefMat[k2][k1]
@@ -1736,10 +1740,10 @@ def MaximalSetIndices(PrefMat, Type):
 					HasPath[k1][k2] = PrefMat[k1][k2] >= PrefMat[k2][k1]
 	
 	# Consider paths with intermediate nodes from 1 to k
-	for k in xrange(n):
-		for k1 in xrange(n):
+	for k in range(n):
+		for k1 in range(n):
 			if k1 != k:
-				for k2 in xrange(n):
+				for k2 in range(n):
 					if k2 != k and k2 != k1:
 						if HasPath[k1][k] and HasPath[k][k2]:
 							HasPath[k1][k2] = True
@@ -1747,14 +1751,14 @@ def MaximalSetIndices(PrefMat, Type):
 	# Candidates with paths to them but none to complete a cycle,
 	# they are not in the maximal set
 	InMaximal = n*[True]
-	for k1 in xrange(n):
-		for k2 in xrange(n):
+	for k1 in range(n):
+		for k2 in range(n):
 			if k2 != k1:
 				if HasPath[k2][k1] and not HasPath[k1][k2]:
 					InMaximal[k1] = False
 	
 	# Find indices
-	return tuple((im[0] for im in zip(xrange(n),InMaximal) if im[1]))
+	return tuple((im[0] for im in zip(range(n),InMaximal) if im[1]))
 
 def MaximalSet(BBox, Type):
 	Cands = BBox.Candidates()
@@ -1771,7 +1775,7 @@ def MaximalSetSequenceIndices(PrefMat, Type):
 	# because MaximalSetIndices finds them relative to
 	# its input's size
 	n = len(PrefMat)
-	BaseSeq = list(xrange(n))
+	BaseSeq = list(range(n))
 	PrevPrefMat = PrefMat
 	
 	while True:
@@ -1781,7 +1785,7 @@ def MaximalSetSequenceIndices(PrefMat, Type):
 		
 		# Find remaining indices and trim down
 		# the base indices and the preference matrix with them
-		OrigIxs = set(xrange(len(PrevPrefMat)))
+		OrigIxs = set(range(len(PrevPrefMat)))
 		SubIxs = set(MSIxs)
 		RmIxsSet = OrigIxs - SubIxs
 		RmIxs = list(RmIxsSet)
@@ -1858,8 +1862,8 @@ def DescendingSolidCoalitions(BBox):
 			if tuple(vtc) == sb:
 				sbct += Weight
 		sbcts.append(sbct)
-	sbcx = zip(sbsts,sbcts)
-	sbcx.sort(lambda a,b: -cmp(a[1],b[1]))
+	sbcx = list(zip(sbsts,sbcts))
+	sbcx.sort(key=lambda x: -x[1])
 	
 	candset = set(BBox.Candidates())
 	winset = set(BBox.Candidates())
@@ -1879,15 +1883,15 @@ def DescendingSolidCoalitions(BBox):
 def DumpSingleAlgorithm(Algorithm,BBox):
 
 	# For reference
-	print "Schulze and Borda:"
-	print Schulze(BBox)
-	print Borda(BBox)
-	print
+	print("Schulze and Borda:")
+	print(Schulze(BBox))
+	print(Borda(BBox))
+	print()
 	
-	print "Algorithm to Test:"
+	print("Algorithm to Test:")
 	res = Algorithm(BBox)
-	print res
-	print
+	print(res)
+	print()
 
 
 def DumpMultiWinnerAlgorithms(BBox):
@@ -1895,25 +1899,25 @@ def DumpMultiWinnerAlgorithms(BBox):
 	Cands = BBox.Candidates()
 	NumCands = len(Cands)
 
-	for k in xrange(min(3,NumCands)):
+	for k in range(min(3,NumCands)):
 		Num = k+1
-		print "Single Transferable Vote:", Num
+		print("Single Transferable Vote:", Num)
 		reslist = SingleTransferableVote(BBox,Num)
 		# Only show the final result
-		print reslist[-1]
-		print
+		print(reslist[-1])
+		print()
 
-	for k in xrange(min(3,NumCands)):
+	for k in range(min(3,NumCands)):
 		Num = k+1
-		print "CPO by STV:", Num
-		print CPOSTV(BBox,Num)
-		print
+		print("CPO by STV:", Num)
+		print(CPOSTV(BBox,Num))
+		print()
 
-	for k in xrange(min(3,NumCands)):
+	for k in range(min(3,NumCands)):
 		Num = k+1
-		print "Schulze STV:", Num
-		print SchulzeSTV(BBox,Num)
-		print
+		print("Schulze STV:", Num)
+		print(SchulzeSTV(BBox,Num))
+		print()
 
 import time
 
@@ -1923,280 +1927,278 @@ def DumpAll(Ballots, DoNFactorial=True):
 	# DumpSingleAlgorithm(lambda b: MaximalSetSequence(b,"Smith"),BBox); return
 	# DumpMultiWinnerAlgorithms(BBox); return
 	
-	print "Candidates:",
+	print("Candidates:",)
 	Cands = BBox.Candidates()
 	NumCands = len(Cands)
-	for Cand in Cands: print Cand, " ",
-	print
-	print
+	for Cand in Cands: print(Cand, " ",)
+	print()
+	print()
 	
-	print "Total Count:", TotalCount(BBox)
-	print
+	print("Total Count:", TotalCount(BBox))
+	print()
 	
-	print "All Votes:"
+	print("All Votes:")
 	res = AllVotes(BBox)
-	for r in res: print r
-	print
+	for r in res: print(r)
+	print()
 	
-	print "Top One (First Past the Post, Plurality):"
+	print("Top One (First Past the Post, Plurality):")
 	res = TopOne(BBox)
-	for r in res: print r
-	print
+	for r in res: print(r)
+	print()
 	
-	print "All Top N's (Bucklin):"
+	print("All Top N's (Bucklin):")
 	reslist = TopNumList(BBox)
 	for k, res in enumerate(reslist):
-		print "N =", k+1
-		for r in res: print r
-	print
+		print("N =", k+1)
+		for r in res: print(r)
+	print()
 	
-	print "Borda Count:"
+	print("Borda Count:")
 	res = Borda(BBox)
-	for r in res: print r
-	print
+	for r in res: print(r)
+	print()
 	
-	print "Modified Borda Count:"
+	print("Modified Borda Count:")
 	res = ModBorda(BBox)
-	for r in res: print r
-	print
+	for r in res: print(r)
+	print()
 	
-	print "Cumulative Borda Count:"
+	print("Cumulative Borda Count:")
 	res = CumulBorda(BBox)
-	for r in res: print r
-	print
+	for r in res: print(r)
+	print()
 	
-	print "Dowdall System:"
+	print("Dowdall System:")
 	res = Dowdall(BBox)
-	for r in res: print r
-	print
+	for r in res: print(r)
+	print()
 	
-	print "Majority Judgment:"
+	print("Majority Judgment:")
 	res = MajorityJudgment(BBox)
-	for r in res: print r
-	print
+	for r in res: print(r)
+	print()
 	
-	print "Top-Two Runoff:"
+	print("Top-Two Runoff:")
 	reslist = TopTwoRunoff(BBox)
 	for k, res in enumerate(reslist):
-		print "Round", k+1
-		for r in res: print r
-	print
+		print("Round", k+1)
+		for r in res: print(r)
+	print()
 	
-	print "STAR Voting:"
+	print("STAR Voting:")
 	reslist = TopTwoRunoff(BBox,Borda)
 	for k, res in enumerate(reslist):
-		print "Round", k+1
-		for r in res: print r
-	print
+		print("Round", k+1)
+		for r in res: print(r)
+	print()
 
-	print "Sequential Runoff:"
+	print("Sequential Runoff:")
 	reslist = SequentialRunoff(BBox)
 	for k, res in enumerate(reslist):
-		print "Round", k+1
-		for r in res: print r
-	print
+		print("Round", k+1)
+		for r in res: print(r)
+	print()
 
-	print "Winner Dropping for SR:"
+	print("Winner Dropping for SR:")
 	reslistlist = WinnerDropping(BBox, SequentialRunoff, lambda r: r[-1][0][0])
 	for k, reslist in enumerate(reslistlist):
-		print "Overall Round", k+1
+		print("Overall Round", k+1)
 		for l, res in enumerate(reslist):
-			print "SR Round", l+1
-			for r in res: print r
-	print
+			print("SR Round", l+1)
+			for r in res: print(r)
+	print()
 	
-	print "Baldwin:"
+	print("Baldwin:")
 	reslist = SequentialRunoff(BBox,min,Borda)
 	for k, res in enumerate(reslist):
-		print "Round", k+1
-		for r in res: print r
-	print
+		print("Round", k+1)
+		for r in res: print(r)
+	print()
 	
-	print "Nanson:"
+	print("Nanson:")
 	reslist = SequentialRunoff(BBox,Average,Borda)
 	for k, res in enumerate(reslist):
-		print "Round", k+1
-		for r in res: print r
-	print
+		print("Round", k+1)
+		for r in res: print(r)
+	print()
 	
-	print "Coombs:"
+	print("Coombs:")
 	reslist = SequentialRunoff(BBox,min,MinusBottom)
 	for k, res in enumerate(reslist):
-		print "Round", k+1
-		for r in res: print r
-	print
+		print("Round", k+1)
+		for r in res: print(r)
+	print()
 
-	for k in xrange(min(3,NumCands)):
+	for k in range(min(3,NumCands)):
 		Num = k+1
-		print "Single Transferable Vote:", Num
+		print("Single Transferable Vote:", Num)
 		reslist = SingleTransferableVote(BBox,Num)
 		for k, res in enumerate(reslist):
-			print "Round", k+1
-			for r in res: print r
-		print
+			print("Round", k+1)
+			for r in res: print(r)
+		print()
 
-	for k in xrange(min(3,NumCands)):
+	for k in range(min(3,NumCands)):
 		Num = k+1
-		print "CPO by STV:", Num
-		print CPOSTV(BBox,Num)
-		print
+		print("CPO by STV:", Num)
+		print(CPOSTV(BBox,Num))
+		print()
 
-	for k in xrange(min(3,NumCands)):
+	for k in range(min(3,NumCands)):
 		Num = k+1
-		print "Schulze STV:", Num
-		print SchulzeSTV(BBox,Num)
-		print
+		print("Schulze STV:", Num)
+		print(SchulzeSTV(BBox,Num))
+		print()
 	
-	print "Condorcet Matrix:"
+	print("Condorcet Matrix:")
 	PrefMat = BBox.CondorcetMatrix()
 	for PMRow in PrefMat:
 		for PMVal in PMRow:
-			print PMVal, '\t',
-		print
-	print
+			print(PMVal, '\t', end='')
+		print()
+	print()
 	
-	print "Condorcet Winner:"
-	print CondorcetWinner(BBox)
-	print
+	print("Condorcet Winner:")
+	print(CondorcetWinner(BBox))
+	print()
 	
-	print "Condorcet Loser:"
-	print CondorcetLoser(BBox)
-	print
+	print("Condorcet Loser:")
+	print(CondorcetLoser(BBox))
+	print()
 	
-	print "Condorcet Combined Borda (plain + flipped):"
+	print("Condorcet Combined Borda (plain + flipped):")
 	res = CondorcetCmbnBorda(BBox)
-	for r in res: print r
-	print
+	for r in res: print(r)
+	print()
 	
-	print "Black: Condorcet with Fallback"
+	print("Black: Condorcet with Fallback")
 	res = CondorcetWithFallback(BBox)
-	print res[0]
+	print(res[0])
 	if res[0]:
-		print res[1]
+		print(res[1])
 	else:
-		for r in res[1]: print r
-	print
+		for r in res[1]: print(r)
+	print()
 	
-	print "Black: Condorcet with Fallback (Sequential Runoff, Smith set)"
+	print("Black: Condorcet with Fallback (Sequential Runoff, Smith set)")
 	res = CondorcetWithFallback(BBox,SequentialRunoff,"Smith")
-	print res[0]
+	print(res[0])
 	if res[0]:
-		print res[1]
+		print(res[1])
 	else:
 		for k, rx in enumerate(res[1]):
-			print "Round", k+1
-			for r in rx: print r
-	print
+			print("Round", k+1)
+			for r in rx: print(r)
+	print()
 	
-	print "Condorcet SR using C Winner:"
+	print("Condorcet SR using C Winner:")
 	reslist = CondorcetSequentialRunoff(BBox,True)
 	for k, res in enumerate(reslist):
-		print "Round", k+1
-		for r in res: print r
-	print
+		print("Round", k+1)
+		for r in res: print(r)
+	print()
 	
-	print "Condorcet SR dropping C Loser:"
+	print("Condorcet SR dropping C Loser:")
 	reslist = CondorcetSequentialRunoff(BBox,False,True)
 	for k, res in enumerate(reslist):
-		print "Round", k+1
-		for r in res: print r
-	print
+		print("Round", k+1)
+		for r in res: print(r)
+	print()
 		
-	print "Schulze Beatpath:"
-	print Schulze(BBox)
-	print
+	print("Schulze Beatpath:")
+	print(Schulze(BBox))
+	print()
 	
-	print "Copeland Pairwise Aggregation:"
+	print("Copeland Pairwise Aggregation:")
 	res = Copeland(BBox)
-	for r in res: print r
-	print
+	for r in res: print(r)
+	print()
 	
 	for Which in ("wins", "marg", "oppo"):
-		print "Minimax:", Which
+		print("Minimax:", Which)
 		res = Minimax(BBox,Which)
-		for r in res: print r
-		print
+		for r in res: print(r)
+		print()
 	
-	print "Kemeny-Young:"
+	print("Kemeny-Young:")
 	if DoNFactorial:
-		print KemenyYoung(BBox)
+		print(KemenyYoung(BBox))
 	else:
-		print "Skipped because it is O(n!)"
-	print
+		print("Skipped because it is O(n!)")
+	print()
 	
-	print "Dodgson:"
+	print("Dodgson:")
 	if DoNFactorial:
-		print Dodgson(BBox)
+		print(Dodgson(BBox))
 	else:
-		print "Skipped because it is O(n!)"
-	print
+		print("Skipped because it is O(n!)")
+	print()
 	
-	print "Tideman Ranked Pairs:"
-	print RankedPairs(BBox)
-	print
+	print("Tideman Ranked Pairs:")
+	print(RankedPairs(BBox))
+	print()
 	
-	print "Maximize Affirmed Majorities:"
-	print RankedPairs(BBox,"wins")
-	print
+	print("Maximize Affirmed Majorities:")
+	print(RankedPairs(BBox,"wins"))
+	print()
 	
-	print "Maximal Lotteries:"
+	print("Maximal Lotteries:")
 	res = MaximalLotteries(BBox)
-	for r in res: print r
-	print
+	for r in res: print(r)
+	print()
 	
-	print "Maximal sets: Smith and Schwartz sets:"
+	print("Maximal sets: Smith and Schwartz sets:")
 	MaxSetSmith = MaximalSet(BBox,"Smith")
 	MaxSetSchwartz = MaximalSet(BBox,"Schwartz")
 	BBoxSmith = KeepCandidates(BBox, MaxSetSmith)
 	BBoxSchwartz = KeepCandidates(BBox, MaxSetSchwartz)
-	print MaxSetSmith
-	print MaxSetSchwartz
-	print
+	print(MaxSetSmith)
+	print(MaxSetSchwartz)
+	print()
 	
-	print "Borda on Smith Set:"
+	print("Borda on Smith Set:")
 	res = Borda(BBoxSmith)
-	for r in res: print r
-	print
+	for r in res: print(r)
+	print()
 	
-	print "Borda on Schwartz Set:"
+	print("Borda on Schwartz Set:")
 	res = Borda(BBoxSchwartz)
-	for r in res: print r
-	print
+	for r in res: print(r)
+	print()
 	
-	print "IRV on Smith Set:"
+	print("IRV on Smith Set:")
 	reslist = SequentialRunoff(BBoxSmith)
 	for k, res in enumerate(reslist):
-		print "Round", k+1
-		for r in res: print r
-	print
+		print("Round", k+1)
+		for r in res: print(r)
+	print()
 	
-	print "IRV on Schwartz Set:"
+	print("IRV on Schwartz Set:")
 	reslist = SequentialRunoff(BBoxSchwartz)
 	for k, res in enumerate(reslist):
-		print "Round", k+1
-		for r in res: print r
-	print
+		print("Round", k+1)
+		for r in res: print(r)
+	print()
 	
-	print "Sequence of maximal sets: Smith and Schwartz sets:"
-	print MaximalSetSequence(BBox,"Smith")
-	print MaximalSetSequence(BBox,"Schwartz")
-	print
+	print("Sequence of maximal sets: Smith and Schwartz sets:")
+	print(MaximalSetSequence(BBox,"Smith"))
+	print(MaximalSetSequence(BBox,"Schwartz"))
+	print()
 
-	print "Smith-Set Sequential Runoff:"
+	print("Smith-Set Sequential Runoff:")
 	reslist = MaximalSetSequentialRunoff(BBox,"Smith")
 	for k, res in enumerate(reslist):
-		print "Round", k+1
-		for r in res: print r
-	print
+		print("Round", k+1)
+		for r in res: print(r)
+	print()
 		
-	print "Descending Solid Coalitions"
+	print("Descending Solid Coalitions")
 	res = DescendingSolidCoalitions(BBox)
-	for r in res: print r
-	print
-	
-	print
-	
-	
+	for r in res: print(r)
+	print()
+
+
 # Debug:
 if __name__ == "__main__":
 	
@@ -2263,26 +2265,26 @@ if __name__ == "__main__":
 		('Strawberry', 'Mint CC')
 		)
 	
-	print "*** Empty Ballot Box ***"
+	print("*** Empty Ballot Box ***")
 	DumpAll(ZeroBallots)
 	
-	print "*** One-Party Election ***"
+	print("*** One-Party Election ***")
 	DumpAll(OneBallot)
 	
-	print "*** Two-Party Election ***"
+	print("*** Two-Party Election ***")
 	DumpAll(TwoBallots)
 	
-	print "*** Beers ***"
+	print("*** Beers ***")
 	DumpAll(BeerBallots)
 	
-	print "*** Distilled Spirits ***"
+	print("*** Distilled Spirits ***")
 	DumpAll(DistilledBallots)
 	
-	print "*** Tennessee Capital ***"
+	print("*** Tennessee Capital ***")
 	DumpAll(TennesseeCapitalBallots)
 	
-	print "*** ABCDS ***"
+	print("*** ABCDS ***")
 	DumpAll(ABCDSBallots)
 	
-	print "*** Ice-Cream Flavors ***"
+	print("*** Ice-Cream Flavors ***")
 	DumpAll(MakeWeighted(ICFBallots))

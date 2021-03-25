@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!python3
 #
 # Example from
 # http://freethoughtblogs.com/dispatches/2013/11/14/time-to-rewrite-the-constitution/

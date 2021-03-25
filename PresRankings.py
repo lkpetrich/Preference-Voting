@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!python3
 #
 # From
 # http://en.wikipedia.org/wiki/Historical_rankings_of_Presidents_of_the_United_States
@@ -11,6 +11,7 @@
 # to get a picture of the range of opinion
 
 from math import sqrt
+from functools import cmp_to_key
 
 Data = (
 	("George Washington",2,2,3,3,4,4,4,3,2,3,1,4,1,2,2,4,3,2,2,2,1),
@@ -84,52 +85,52 @@ RelRanks = tuple(RelRanks)
 PresNbrs = NumPress*[0]
 PresAvgs = NumPress*[0.0]
 
-for kp in xrange(NumPress):
-	for k in xrange(NumRankers):
+for kp in range(NumPress):
+	for k in range(NumRankers):
 		r = RelRanks[kp][k]
 		if r != None:
 			PresNbrs[kp] += 1
 			PresAvgs[kp] += r
 
-for kp in xrange(NumPress):
+for kp in range(NumPress):
 	PresAvgs[kp] /= PresNbrs[kp]
 
 PresStds = NumPress*[0.0]
 
-for kp in xrange(NumPress):
-	for k in xrange(NumRankers):
+for kp in range(NumPress):
+	for k in range(NumRankers):
 		r = RelRanks[kp][k]
 		if r != None:
 			PresStds[kp] += (r - PresAvgs[kp])**2
 
-for kp in xrange(NumPress):
+for kp in range(NumPress):
 	PresStds[kp] = sqrt(PresStds[kp]/PresNbrs[kp])
 
-PresStats = zip(Presidents,PresNbrs,PresAvgs,PresStds)
-for PS in PresStats: print PS
+PresStats = list(zip(Presidents,PresNbrs,PresAvgs,PresStds))
+for PS in PresStats: print(PS)
 
-print
+print()
 
-def PSSortFunc(a,b):
-	rc = - cmp(a[2],b[2])
-	if rc != 0: return rc
-	return cmp(a[0],b[0])
+PresStats.sort(key=lambda x: (-x[2],x[0]))
+for PS in PresStats: print(PS)
 
-PresStats.sort(PSSortFunc)
-for PS in PresStats: print PS
+print()
 
-print
-
-PrefMat = [NumPress*[0] for k in xrange(NumPress)]
-for kr in xrange(NumRankers):
-	for k1 in xrange(NumPress):
+PrefMat = [NumPress*[0] for k in range(NumPress)]
+for kr in range(NumRankers):
+	for k1 in range(NumPress):
 		r1 = Data[k1][kr+1]
 		if r1 != None:
-			for k2 in xrange(NumPress):
+			for k2 in range(NumPress):
 				r2 = Data[k2][kr+1]
 				if r2 != None:
 					if r1 < r2:
 						PrefMat[k1][k2] += 1
+
+def cmp(x,y):
+	if x > y: return 1
+	elif x < y: return -1
+	else: return 0
 
 def SchulzeOrdering(BPMat,i,j):
 	rc = - cmp(BPMat[i][j],BPMat[j][i])
@@ -140,27 +141,27 @@ def SchulzePrefOrder(PrefMat):
 	n = len(PrefMat)
 	
 	# Beatpaths
-	BPMat = [n*[0] for k in xrange(n)]
+	BPMat = [n*[0] for k in range(n)]
 	
 	# Variant of Floyd-Warshall algorithm
-	for i in xrange(n):
-		for j in xrange(n):
+	for i in range(n):
+		for j in range(n):
 			if j != i:
 				if PrefMat[i][j] > PrefMat[j][i]:
 					BPMat[i][j] = PrefMat[i][j]
 				else:
 					BPMat[i][j] = 0
 	
-	for i in xrange(n):
-		for j in xrange(n):
+	for i in range(n):
+		for j in range(n):
 			if j != i:
-				for k in xrange(n):
+				for k in range(n):
 					if i != k and j != k:
 						BPMat[j][k] = \
 							max(BPMat[j][k], min(BPMat[j][i],BPMat[i][k]))
 	
-	Ordering = range(n)
-	Ordering.sort(lambda i,j: SchulzeOrdering(BPMat,i,j))
+	Ordering = list(range(n))
+	Ordering.sort(key=cmp_to_key(lambda i,j: SchulzeOrdering(BPMat,i,j)))
 	return Ordering
 
 SPO = SchulzePrefOrder(PrefMat)
@@ -168,4 +169,4 @@ PresSP = tuple((Presidents[k] for k in SPO))
 
 PresBC = [p[0] for p in PresStats]
 
-for p in zip(PresBC,PresSP): print p
+for p in zip(PresBC,PresSP): print(p)
