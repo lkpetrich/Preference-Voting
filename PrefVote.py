@@ -121,19 +121,33 @@
 # CWn: use the Condorcet winner
 # CLs: drop the Condorcet loser
 #
-# Schulze(BBox)
-# Schulze's beatpath method
-# Returns simple list of candidates from winners to losers
-#
 # Copeland(BBox)
 # Copeland's pairwise-aggregation method
 # Returns sorted list of (candidate, score)
+#
+# Schulze(BBox)
+# Schulze's beatpath method
+# Returns sorted list of (candidate, score)
+# The score is calculated from the beatpath-order matrix in Copeland fashion
 #
 # Minimax(BBox, Which): second arg is which sort:
 # "wins" -- winning votes
 # "marg" -- margins
 # "oppo" -- pairwise opposition
 # Returns sorted list of (candidate, score)
+#
+# RankedPairs(BBox, Which="oppo")
+# Tideman's ranked-pairs method
+# Like Kemeny-Young, but with simple hill-climbing optimization
+# Returns sorted list of (candidate, score)
+# The score is calculated from the pair-ranking matrix in Copeland fashion
+#
+# Which is like for Minimax.
+# Tideman's original method has "oppo" (the default)
+# Maximize Affirmed Majorities has "wins"
+#
+# Maximum Affirmed Majorities and Maximum Majority Voting
+# seem identical to it
 #
 # KemenyYoung(BBox)
 # The Kemeny-Young method
@@ -154,18 +168,6 @@
 # Permutation distance =
 # Minimum number of interchanges from ascending order to that permutation
 # I find that value to be (length) - (number of cycles)
-#
-# RankedPairs(BBox, Which="oppo")
-# Tideman's ranked-pairs method
-# Like Kemeny-Young, but with simple hill-climbing optimization
-# Returns simple list of candidates from winners to losers
-#
-# Which is like for Minimax.
-# Tideman's original method has "oppo" (the default)
-# Maximize Affirmed Majorities has "wins"
-#
-# Maximum Affirmed Majorities and Maximum Majority Voting
-# seem identical to it
 #
 # Maximal lotteries - Wikipedia - https://en.wikipedia.org/wiki/Maximal_lotteries
 # [1503.00694] Consistent Probabilistic Social Choice - https://arxiv.org/abs/1503.00694
@@ -583,6 +585,7 @@ def SingleTransferableVote(BBox, Num):
 	NewBBox = BBox
 	rounds = []
 	Winners = []
+	Losers = []
 	while len(NewBBox.Ballots) > 0 and len(Winners) < Num:
 		res = TopOne(NewBBox)
 		
@@ -620,9 +623,17 @@ def SingleTransferableVote(BBox, Num):
 		BottomCands.sort()
 		BottomCands = tuple(BottomCands)
 		
+		for BotCand in BottomCands:
+			Losers.append(BotCand)
+		
 		NewBBox = RemoveCandidates(NewBBox, BottomCands)
 		rounds.append(tuple(list(res) + [('-',BottomCands)]))
-	
+		
+		if len(Winners) < Num:
+			for loser in reversed(Losers):
+				Winners.append(loser)
+				if len(Winners) >= Num: break
+		
 	rounds.append((tuple(Winners),))
 	
 	return tuple(rounds)
@@ -884,6 +895,27 @@ def CondorcetSequentialRunoff(BBox, CWn=False, CLs=False, \
 
 	return tuple(rounds)
 
+
+# http://en.wikipedia.org/wiki/Copeland%27s_method
+
+def compare(x,y):
+	if x < y: return -1
+	elif x > y: return 1
+	else: return 0
+
+def CopelandPrefCount(PrefMat):
+	n = len(PrefMat)
+	
+	Count = n*[0]
+	for k1 in range(n):
+		for k2 in range(n):
+			Count[k1] += compare(PrefMat[k1][k2],PrefMat[k2][k1])
+	
+	return Count
+
+def Copeland(BBox): return CondorcetPrefCount(BBox,CopelandPrefCount)
+
+
 # http://en.wikipedia.org/wiki/Schulze_method
 
 def OrderingMatrix(n, ordf):
@@ -929,16 +961,26 @@ def BeatpathMatrix(PrefMat):
 	
 	return BPMat
 
-def SchulzePrefOrder(PrefMat):
-	n = len(PrefMat)
+def SchulzePrefCount(PrefMat):
 	
 	# Beatpaths
 	BPMat = BeatpathMatrix(PrefMat)
 	
-	# Sorted List
-	return ListOrderFromMatrix(BPMat)
+	# Win-Lose Counts
+	return CopelandPrefCount(BPMat)
 
-def Schulze(BBox): return CondorcetPrefOrder(BBox,SchulzePrefOrder)
+def SchulzePrefOrder(PrefMat):
+	n = len(PrefMat)
+
+	counts = SchulzePrefCount(PrefMat)
+	
+	withnums = list(zip(range(n),counts))
+	
+	withnums.sort(key=lambda x: x[1], reverse=True)
+	
+	return tuple([x[0] for x in withnums])
+
+def Schulze(BBox): return CondorcetPrefCount(BBox,SchulzePrefCount)
 
 
 # Sorters for multiseat methods mentioned earlier
@@ -955,25 +997,6 @@ def CPOSTV(BBox, Num): return SortWithSchulze(CPOSTVMatrix(BBox, Num))
 
 def SchulzeSTV(BBox, Num): return SortWithSchulze(SchulzeSTVMatrix(BBox, Num))
 
-
-# http://en.wikipedia.org/wiki/Copeland%27s_method
-
-def compare(x,y):
-	if x < y: return -1
-	elif x > y: return 1
-	else: return 0
-
-def CopelandPrefCount(PrefMat):
-	n = len(PrefMat)
-	
-	Count = n*[0]
-	for k1 in range(n):
-		for k2 in range(n):
-			Count[k1] += compare(PrefMat[k1][k2],PrefMat[k2][k1])
-	
-	return Count
-
-def Copeland(BBox): return CondorcetPrefCount(BBox,CopelandPrefCount)
 
 # http://en.wikipedia.org/wiki/Minimax_condorcet
 
@@ -1021,6 +1044,182 @@ def MinimaxPrefCount(PrefMat,Which):
 
 def Minimax(BBox,Which):
 	return CondorcetPrefCount(BBox,lambda PM: MinimaxPrefCount(PM,Which))
+
+
+# http://en.wikipedia.org/wiki/Ranked_pairs
+# Uses cyclicity test in
+# http://www.cs.hmc.edu/~keller/courses/cs60/s98/examples/acyclic/
+
+# Uses the choices for modified Condorcet preference matrix in minimax
+
+def RankedPairsCompare(x):
+	return (-x[2],x[3])
+
+def RankedPairsOrdering(BeatList,i,j):
+	if (i,j) in BeatList:
+		rc = -1
+	elif (j,i) in BeatList:
+		rc = 1
+	else:
+		rc = cmp(i,j)
+	return rc
+
+def RankedPairsPrefOrderOriginal(PrefMat,Which="oppo"):
+	ModMat = ModifiedPrefMat(PrefMat,Which)
+	
+	# Find the beat margins and sort them
+	n = len(PrefMat)
+	BeatMargins = []
+	for k1 in range(n):
+		for k2 in range(n):
+			if k2 != k1:
+				bmg = (k1, k2, ModMat[k1][k2], ModMat[k2][k1])
+				BeatMargins.append(bmg)
+	BeatMargins.sort(RankedPairsCompare)
+	
+	# Find the beat list of what beats what
+	BeatList = []
+	for bmg in BeatMargins:
+		# Get a pair of (start index, end index)
+		bd = tuple(bmg[:2])
+		
+		# The simplest test for cycles -- reverse direction
+		rvbd = (bd[1],bd[0])
+		if rvbd in BeatList: continue
+		
+		# Nontrivial test: remove all the nodes that are
+		# only on left sides or on right sides
+		# Repeat until it is no longer possible to remove any more
+		# Are any left?
+		BLX = BeatList + [bd]
+		while True:
+			# What is present on each side?
+			NumLeft = n*[0]
+			NumRight = n*[0]
+			for bdx in BLX:
+				NumLeft[bdx[0]] += 1
+				NumRight[bdx[1]] += 1
+			
+			# What is present on only one side?
+			RemoveLeft = []
+			RemoveRight = []
+			for k in range(n):
+				if NumLeft[k] > 0 and NumRight[k] == 0:
+					RemoveLeft.append(k)
+				if NumLeft[k] == 0 and NumRight[k] > 0:
+					RemoveRight.append(k)
+			
+			# Can one go any further?
+			if len(RemoveLeft) + len(RemoveRight) == 0: break
+			
+			# Remove!
+			BLY = []
+			for bdx in BLX:
+				if bdx[0] in RemoveLeft: continue
+				if bdx[1] in RemoveRight: continue
+				BLY.append(bdx)
+			BLX = BLY
+		
+		# If no cycles found, then add the new one
+		if len(BLX) == 0:
+			BeatList.append(bd)
+	
+	return ListOrderFromMatFunc(n, \
+		lambda i,j: RankedPairsOrdering(BeatList,i,j))
+
+# With depth-first searching
+# Algorithm trimmed down to check only each candidate pair
+
+def RankedPairsPrefCount(PrefMat,Which="oppo"):
+	ModMat = ModifiedPrefMat(PrefMat,Which)
+	
+	# Find the beat margins and sort them
+	n = len(PrefMat)
+	BeatMargins = []
+	for k1 in range(n):
+		for k2 in range(n):
+			if k2 != k1:
+				bmg = (k1, k2, ModMat[k1][k2], ModMat[k2][k1])
+				BeatMargins.append(bmg)
+	BeatMargins.sort(key=RankedPairsCompare)
+	
+	# Depth-first setup:
+	# Use iteration and an explicit stack rather than recursion
+	# In the search stack:
+	#   Candidate
+	#   Position in list of next candidates
+	# List of next candidates for each candidate
+	CandSeq = n*[0]
+	CandSeqPos = n*[0]
+	NextCand = [[] for i in range(n)]
+	
+	# Force initialization
+	ix = -1
+	
+	# Find the beat list of what beats what
+	BeatList = []
+	for bmg in BeatMargins:
+		# Initial and final candidates of a pair
+		(bd0, bd1) = bmg[:2]
+		
+		# Starting?
+		if ix < 0:
+			ix = 0
+			CandSeq[ix] = 0
+			CandSeqPos[ix] = 0
+			NextCand[bd0].append(bd1)
+			continue
+			
+		# Continuing
+		
+		# Initial state:
+		# Use final candidate of pair
+		ix = 0
+		CandSeq[ix] = bd1
+		CandSeqPos[ix] = 0
+		
+		# Add it unless we find that it causes a cycle	
+		AddPair = True
+			
+		while True:
+			# Check on whether one has found a cycle
+			cd = CandSeq[ix]
+			if cd == bd0:
+				# Found a cycle
+				AddPair = False
+				break
+			
+			# Where to go next?
+			nxtcds = NextCand[cd]
+			nix = CandSeqPos[ix]
+			if nix < len(nxtcds):
+				# Advance to next candidate
+				ix += 1
+				CandSeq[ix] = nxtcds[nix]
+				CandSeqPos[ix] = 0
+			else:
+				# Back up
+				# If not possible, then the search is finished
+				if ix <= 0: break
+				ix -= 1
+				CandSeqPos[ix] += 1
+		
+		# The pair does not create a cycle,
+		# so we go ahead with it
+		if AddPair:
+			NextCand[bd0].append(bd1)
+	
+	OrdMat = [n*[0] for i in range(n)]
+	for c0,clst in enumerate(NextCand):
+		for c1 in clst:
+			OrdMat[c0][c1] = -1
+			OrdMat[c1][c0] = 1
+	
+	return CopelandPrefCount(OrdMat)
+
+def RankedPairs(BBox, Which="oppo"):
+	return CondorcetPrefCount(BBox, lambda BB: RankedPairsPrefCount(BB,Which))
+
 
 # Permutation generator
 # Uses in-place algorithm from
@@ -1169,180 +1368,6 @@ def Dodgson(BBox):
 	CDList.sort(key=CDLSortFunc)
 	return tuple(CDList)
 
-
-# http://en.wikipedia.org/wiki/Ranked_pairs
-# Uses cyclicity test in
-# http://www.cs.hmc.edu/~keller/courses/cs60/s98/examples/acyclic/
-
-# Uses the choices for modified Condorcet preference matrix in minimax
-
-def RankedPairsCompare(x):
-	return (-x[2],x[3])
-
-def RankedPairsOrdering(BeatList,i,j):
-	if (i,j) in BeatList:
-		rc = -1
-	elif (j,i) in BeatList:
-		rc = 1
-	else:
-		rc = cmp(i,j)
-	return rc
-
-def RankedPairsPrefOrderOriginal(PrefMat,Which="oppo"):
-	ModMat = ModifiedPrefMat(PrefMat,Which)
-	
-	# Find the beat margins and sort them
-	n = len(PrefMat)
-	BeatMargins = []
-	for k1 in range(n):
-		for k2 in range(n):
-			if k2 != k1:
-				bmg = (k1, k2, ModMat[k1][k2], ModMat[k2][k1])
-				BeatMargins.append(bmg)
-	BeatMargins.sort(RankedPairsCompare)
-	
-	# Find the beat list of what beats what
-	BeatList = []
-	for bmg in BeatMargins:
-		# Get a pair of (start index, end index)
-		bd = tuple(bmg[:2])
-		
-		# The simplest test for cycles -- reverse direction
-		rvbd = (bd[1],bd[0])
-		if rvbd in BeatList: continue
-		
-		# Nontrivial test: remove all the nodes that are
-		# only on left sides or on right sides
-		# Repeat until it is no longer possible to remove any more
-		# Are any left?
-		BLX = BeatList + [bd]
-		while True:
-			# What is present on each side?
-			NumLeft = n*[0]
-			NumRight = n*[0]
-			for bdx in BLX:
-				NumLeft[bdx[0]] += 1
-				NumRight[bdx[1]] += 1
-			
-			# What is present on only one side?
-			RemoveLeft = []
-			RemoveRight = []
-			for k in range(n):
-				if NumLeft[k] > 0 and NumRight[k] == 0:
-					RemoveLeft.append(k)
-				if NumLeft[k] == 0 and NumRight[k] > 0:
-					RemoveRight.append(k)
-			
-			# Can one go any further?
-			if len(RemoveLeft) + len(RemoveRight) == 0: break
-			
-			# Remove!
-			BLY = []
-			for bdx in BLX:
-				if bdx[0] in RemoveLeft: continue
-				if bdx[1] in RemoveRight: continue
-				BLY.append(bdx)
-			BLX = BLY
-		
-		# If no cycles found, then add the new one
-		if len(BLX) == 0:
-			BeatList.append(bd)
-	
-	return ListOrderFromMatFunc(n, \
-		lambda i,j: RankedPairsOrdering(BeatList,i,j))
-
-# With depth-first searching
-# Algorithm trimmed down to check only each candidate pair
-
-def RankedPairsPrefOrder(PrefMat,Which="oppo"):
-	ModMat = ModifiedPrefMat(PrefMat,Which)
-	
-	# Find the beat margins and sort them
-	n = len(PrefMat)
-	BeatMargins = []
-	for k1 in range(n):
-		for k2 in range(n):
-			if k2 != k1:
-				bmg = (k1, k2, ModMat[k1][k2], ModMat[k2][k1])
-				BeatMargins.append(bmg)
-	BeatMargins.sort(key=RankedPairsCompare)
-	
-	# Depth-first setup:
-	# Use iteration and an explicit stack rather than recursion
-	# In the search stack:
-	#   Candidate
-	#   Position in list of next candidates
-	# List of next candidates for each candidate
-	CandSeq = n*[0]
-	CandSeqPos = n*[0]
-	NextCand = [[] for i in range(n)]
-	
-	# Force initialization
-	ix = -1
-	
-	# Find the beat list of what beats what
-	BeatList = []
-	for bmg in BeatMargins:
-		# Initial and final candidates of a pair
-		(bd0, bd1) = bmg[:2]
-		
-		# Starting?
-		if ix < 0:
-			ix = 0
-			CandSeq[ix] = 0
-			CandSeqPos[ix] = 0
-			NextCand[bd0].append(bd1)
-			continue
-			
-		# Continuing
-		
-		# Initial state:
-		# Use final candidate of pair
-		ix = 0
-		CandSeq[ix] = bd1
-		CandSeqPos[ix] = 0
-		
-		# Add it unless we find that it causes a cycle	
-		AddPair = True
-			
-		while True:
-			# Check on whether one has found a cycle
-			cd = CandSeq[ix]
-			if cd == bd0:
-				# Found a cycle
-				AddPair = False
-				break
-			
-			# Where to go next?
-			nxtcds = NextCand[cd]
-			nix = CandSeqPos[ix]
-			if nix < len(nxtcds):
-				# Advance to next candidate
-				ix += 1
-				CandSeq[ix] = nxtcds[nix]
-				CandSeqPos[ix] = 0
-			else:
-				# Back up
-				# If not possible, then the search is finished
-				if ix <= 0: break
-				ix -= 1
-				CandSeqPos[ix] += 1
-		
-		# The pair does not create a cycle,
-		# so we go ahead with it
-		if AddPair:
-			NextCand[bd0].append(bd1)
-	
-	OrdMat = [n*[0] for i in range(n)]
-	for c0,clst in enumerate(NextCand):
-		for c1 in clst:
-			OrdMat[c0][c1] = -1
-			OrdMat[c1][c0] = 1
-	
-	return ListOrderFromMatrix(OrdMat)
-
-def RankedPairs(BBox, Which="oppo"):
-	return CondorcetPrefOrder(BBox, lambda BB: RankedPairsPrefOrder(BB,Which))
 
 # https://en.wikipedia.org/wiki/Maximal_lotteries
 
@@ -2105,13 +2130,14 @@ def DumpAll(Ballots, DoNFactorial=True):
 		print("Round", k+1)
 		for r in res: print(r)
 	print()
-		
-	print("Schulze Beatpath:")
-	print(Schulze(BBox))
-	print()
 	
 	print("Copeland Pairwise Aggregation:")
 	res = Copeland(BBox)
+	for r in res: print(r)
+	print()
+		
+	print("Schulze Beatpath:")
+	res = Schulze(BBox)
 	for r in res: print(r)
 	print()
 	
@@ -2120,6 +2146,16 @@ def DumpAll(Ballots, DoNFactorial=True):
 		res = Minimax(BBox,Which)
 		for r in res: print(r)
 		print()
+	
+	print("Tideman Ranked Pairs:")
+	res = RankedPairs(BBox)
+	for r in res: print(r)
+	print()
+	
+	print("Maximize Affirmed Majorities:")
+	res = RankedPairs(BBox,"wins")
+	for r in res: print(r)
+	print()
 	
 	print("Kemeny-Young:")
 	if DoNFactorial:
@@ -2130,17 +2166,10 @@ def DumpAll(Ballots, DoNFactorial=True):
 	
 	print("Dodgson:")
 	if DoNFactorial:
-		print(Dodgson(BBox))
+		res = Dodgson(BBox)
+		for r in res: print(r)
 	else:
 		print("Skipped because it is O(n!)")
-	print()
-	
-	print("Tideman Ranked Pairs:")
-	print(RankedPairs(BBox))
-	print()
-	
-	print("Maximize Affirmed Majorities:")
-	print(RankedPairs(BBox,"wins"))
 	print()
 	
 	print("Maximal Lotteries:")
