@@ -1053,16 +1053,7 @@ def Minimax(BBox,Which):
 # Uses the choices for modified Condorcet preference matrix in minimax
 
 def RankedPairsCompare(x):
-	return (-x[2],x[3])
-
-def RankedPairsOrdering(BeatList,i,j):
-	if (i,j) in BeatList:
-		rc = -1
-	elif (j,i) in BeatList:
-		rc = 1
-	else:
-		rc = cmp(i,j)
-	return rc
+	return (x[2],-x[3])
 
 def RankedPairsPrefOrderOriginal(PrefMat,Which="oppo"):
 	ModMat = ModifiedPrefMat(PrefMat,Which)
