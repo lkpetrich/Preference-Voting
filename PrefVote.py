@@ -1050,43 +1050,32 @@ def Minimax(BBox,Which):
 # Uses cyclicity test in
 # http://www.cs.hmc.edu/~keller/courses/cs60/s98/examples/acyclic/
 
-# Uses the choices for modified Condorcet preference matrix in minimax
+# Uses the choices for the modified Condorcet preference matrix
+# that are in the minimax method
 
-def RankedPairsCompare(x):
-	return (x[2],-x[3])
+# The testers are objects with two methods:
+# __init__
+# __call__ on BeatList, BLCand
+# BeatList: sequence type of tuples of pairs of candidates
+# BLCand: tuple of a pair of candidates to test
+# Returns whether or not the added candidate makes the graph acyclic
 
-def RankedPairsPrefOrderOriginal(PrefMat,Which="oppo"):
-	ModMat = ModifiedPrefMat(PrefMat,Which)
-	
-	# Find the beat margins and sort them
-	n = len(PrefMat)
-	BeatMargins = []
-	for k1 in range(n):
-		for k2 in range(n):
-			if k2 != k1:
-				bmg = (k1, k2, ModMat[k1][k2], ModMat[k2][k1])
-				BeatMargins.append(bmg)
-	BeatMargins.sort(RankedPairsCompare)
-	
-	# Find the beat list of what beats what
-	BeatList = []
-	for bmg in BeatMargins:
-		# Get a pair of (start index, end index)
-		bd = tuple(bmg[:2])
+class RPTester_RemoveEnds:
+
+	def __init__(self, NCands):
+		self.n = NCands
 		
-		# The simplest test for cycles -- reverse direction
-		rvbd = (bd[1],bd[0])
-		if rvbd in BeatList: continue
-		
+	def __call__(self, BeatList, BLCand):
 		# Nontrivial test: remove all the nodes that are
 		# only on left sides or on right sides
 		# Repeat until it is no longer possible to remove any more
 		# Are any left?
-		BLX = BeatList + [bd]
+		BLX = list(BeatList) + [BLCand]
+		
 		while True:
 			# What is present on each side?
-			NumLeft = n*[0]
-			NumRight = n*[0]
+			NumLeft = self.n*[0]
+			NumRight = self.n*[0]
 			for bdx in BLX:
 				NumLeft[bdx[0]] += 1
 				NumRight[bdx[1]] += 1
@@ -1094,7 +1083,7 @@ def RankedPairsPrefOrderOriginal(PrefMat,Which="oppo"):
 			# What is present on only one side?
 			RemoveLeft = []
 			RemoveRight = []
-			for k in range(n):
+			for k in range(self.n):
 				if NumLeft[k] > 0 and NumRight[k] == 0:
 					RemoveLeft.append(k)
 				if NumLeft[k] == 0 and NumRight[k] > 0:
@@ -1112,16 +1101,96 @@ def RankedPairsPrefOrderOriginal(PrefMat,Which="oppo"):
 			BLX = BLY
 		
 		# If no cycles found, then add the new one
-		if len(BLX) == 0:
-			BeatList.append(bd)
-	
-	return ListOrderFromMatFunc(n, \
-		lambda i,j: RankedPairsOrdering(BeatList,i,j))
+		return len(BLX) == 0
 
-# With depth-first searching
-# Algorithm trimmed down to check only each candidate pair
 
-def RankedPairsPrefCount(PrefMat,Which="oppo"):
+class RPTester_DepthFirst:
+	def __init__(self,NCands):
+		# Depth-first setup:
+		# Use iteration and an explicit stack rather than recursion
+		# In the search stack:
+		#   Candidate
+		#   Position in list of next candidates
+		# List of next candidates for each candidate
+		self.CandSeq = NCands*[0]
+		self.CandSeqPos = NCands*[0]
+		self.NextCand = [[] for i in range(NCands)]
+		
+		# Force initialization
+		self.ix = -1
+		
+	def __call__(self, BeatList, BLCand):
+		(bd0, bd1) = BLCand
+		
+		# Starting?
+		if self.ix < 0:
+			self.ix = 0
+			self.CandSeq[self.ix] = 0
+			self.CandSeqPos[self.ix] = 0
+			self.NextCand[bd0].append(bd1)
+			return True
+		
+		# Continuing
+		
+		# Initial state:
+		# Use final candidate of pair
+		self.ix = 0
+		self.CandSeq[self.ix] = bd1
+		self.CandSeqPos[self.ix] = 0
+		
+		# Add it unless we find that it causes a cycle				
+		while True:
+			# Check on whether one has found a cycle
+			cd = self.CandSeq[self.ix]
+			if cd == bd0:
+				# Found a cycle
+				return False
+			
+			# Where to go next?
+			nxtcds = self.NextCand[cd]
+			nix = self.CandSeqPos[self.ix]
+			if nix < len(nxtcds):
+				# Advance to next candidate
+				self.ix += 1
+				self.CandSeq[self.ix] = nxtcds[nix]
+				self.CandSeqPos[self.ix] = 0
+			else:
+				# Back up
+				# If not possible, then the search is finished
+				if self.ix <= 0: break
+				self.ix -= 1
+				self.CandSeqPos[self.ix] += 1
+		
+		# The pair does not create a cycle,
+		# so we go ahead with it
+		self.NextCand[bd0].append(bd1)	
+		return True
+
+
+class RPTester_AllNext:
+	def __init__(self,NCands):
+		self.Next = [set() for i in range(NCands)]
+		
+	def __call__(self, BeatList, BLCand):
+		(bd0, bd1) = BLCand
+		
+		# Found a cycle?
+		nx1 = self.Next[bd1]
+		if bd0 in nx1: return False
+		
+		# If not, then update the first one's next ones
+		nx0 = self.Next[bd0]
+		nx0 |= nx1
+		nx0.add(bd1)
+		return True
+
+# Takes the Condorcet matrix, the comparison algorithm,
+# and the tester for being acyclic.
+
+def RankedPairsCompare(x):
+	return (x[2],-x[3])
+
+def RankedPairsPrefCount(PrefMat,Which,Tester):
 	ModMat = ModifiedPrefMat(PrefMat,Which)
 	
 	# Find the beat margins and sort them
@@ -1134,82 +1203,38 @@ def RankedPairsPrefCount(PrefMat,Which="oppo"):
 				BeatMargins.append(bmg)
 	BeatMargins.sort(key=RankedPairsCompare)
 	
-	# Depth-first setup:
-	# Use iteration and an explicit stack rather than recursion
-	# In the search stack:
-	#   Candidate
-	#   Position in list of next candidates
-	# List of next candidates for each candidate
-	CandSeq = n*[0]
-	CandSeqPos = n*[0]
-	NextCand = [[] for i in range(n)]
-	
-	# Force initialization
-	ix = -1
-	
 	# Find the beat list of what beats what
-	BeatList = []
+	BeatList = set()
 	for bmg in BeatMargins:
 		# Initial and final candidates of a pair
 		(bd0, bd1) = bmg[:2]
+		bd = (bd0, bd1)
 		
-		# Starting?
-		if ix < 0:
-			ix = 0
-			CandSeq[ix] = 0
-			CandSeqPos[ix] = 0
-			NextCand[bd0].append(bd1)
-			continue
-			
-		# Continuing
+		# Is the reverse direction present?
+		rvbd = (bd1, bd0)
+		if rvbd in BeatList: continue
 		
-		# Initial state:
-		# Use final candidate of pair
-		ix = 0
-		CandSeq[ix] = bd1
-		CandSeqPos[ix] = 0
-		
-		# Add it unless we find that it causes a cycle	
-		AddPair = True
-			
-		while True:
-			# Check on whether one has found a cycle
-			cd = CandSeq[ix]
-			if cd == bd0:
-				# Found a cycle
-				AddPair = False
-				break
-			
-			# Where to go next?
-			nxtcds = NextCand[cd]
-			nix = CandSeqPos[ix]
-			if nix < len(nxtcds):
-				# Advance to next candidate
-				ix += 1
-				CandSeq[ix] = nxtcds[nix]
-				CandSeqPos[ix] = 0
-			else:
-				# Back up
-				# If not possible, then the search is finished
-				if ix <= 0: break
-				ix -= 1
-				CandSeqPos[ix] += 1
-		
-		# The pair does not create a cycle,
-		# so we go ahead with it
-		if AddPair:
-			NextCand[bd0].append(bd1)
+		if Tester(BeatList,bd):
+			BeatList.add(bd)
 	
+	# The signs for for getting the right sort order
 	OrdMat = [n*[0] for i in range(n)]
-	for c0,clst in enumerate(NextCand):
-		for c1 in clst:
-			OrdMat[c0][c1] = -1
-			OrdMat[c1][c0] = 1
+	for bd0, bd1 in BeatList:
+		OrdMat[bd0][bd1] = -1
+		OrdMat[bd1][bd0] = 1
 	
 	return CopelandPrefCount(OrdMat)
 
+# Global variable for which ranked-pairs tester to use
+# RPTester = RPTester_RemoveEnds
+# RPTester = RPTester_DepthFirst
+RPTester = RPTester_AllNext
+
 def RankedPairs(BBox, Which="oppo"):
-	return CondorcetPrefCount(BBox, lambda BB: RankedPairsPrefCount(BB,Which))
+	NCands = len(BBox.Candidates())
+	Tester = RPTester(NCands)
+	return CondorcetPrefCount(BBox, \
+		lambda BB: RankedPairsPrefCount(BB,Which,Tester))
 
 
 # Permutation generator
@@ -1935,12 +1960,12 @@ def DumpMultiWinnerAlgorithms(BBox):
 		print(SchulzeSTV(BBox,Num))
 		print()
 
-import time
+# import time
 
 def DumpAll(Ballots, DoNFactorial=True):
 	BBox = BallotBox(Ballots)
 	
-	# DumpSingleAlgorithm(lambda b: MaximalSetSequence(b,"Smith"),BBox); return
+	DumpSingleAlgorithm(lambda b: RankedPairs(b),BBox); return
 	# DumpMultiWinnerAlgorithms(BBox); return
 	
 	print("Candidates:",)
