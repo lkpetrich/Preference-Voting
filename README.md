@@ -1,9 +1,9 @@
 # Preference-Voting
 For counting votes in preference or ranked-choice voting. Large number of algorithms implemented.
 
-PrefVote.py -- in Python. Instructions on how to use it are in the file itself.
-LunchMeals.py -- in Python. A simple example of preference voting.
-Preference-Voting Algorithms.nb -- in Mathematica.
+- PrefVote.py -- in Python. Instructions on how to use it are in the file itself.
+- LunchMeals.py -- in Python. A simple example of preference voting.
+- Preference-Voting Algorithms.nb -- in Mathematica.
 
 It works from lists of weighted ballots, with format (weight, (list of candidates in preference order)),
 but it has a convenience function, MakeWeighted, for adding a weight value to unweighted ballots (default 1).
